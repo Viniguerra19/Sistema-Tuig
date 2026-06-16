@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tuig</title>
+
+    <!-- Meta tags PWA e App -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+
+    <link rel="icon" type="image/png" href="/sistema/logo.png" />
+    <link rel="apple-touch-icon" href="/sistema/logo.png" />
+    <link rel="manifest" href="/sistema/manifest.json" />
+
+    <!-- External Libraries (Chart.js & html2pdf) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- OneSignal SDK -->
+    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+    <script>
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        OneSignalDeferred.push(async function (OneSignal) {
+            await OneSignal.init({
+                appId: "50e8bc2c-d215-4b3e-890c-05b5c5d2f58f",
+                serviceWorkerParam: { scope: "/sistema/" },
+                serviceWorkerPath: "sistema/sw.js"
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <!-- Container Principal (App inteiro roda aqui dentro) -->
+    <div class="container" id="app">
+        <!-- O conteúdo será injetado dinamicamente via main.js -->
+    </div>
+
+    <!-- Modais ficarão aqui fora do fluxo principal se necessário ou serão injetados dinamicamente -->
+    <div id="modals-container"></div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
