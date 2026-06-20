@@ -101,7 +101,10 @@ async function login(email) {
         });
       }
 
-      if (userRole === "master_admin" || userRole === "admin") {
+      const emailClean = email.toLowerCase().trim();
+      const isAllowedSpecial = emailClean === "andreiaandy07@gmail.com" || emailClean === "albertofit7@gmail.com";
+
+      if (userRole === "master_admin" || userRole === "admin" || isAllowedSpecial) {
         await renderAdminDashboard(email);
       } else {
         await renderStudentDashboard(email);

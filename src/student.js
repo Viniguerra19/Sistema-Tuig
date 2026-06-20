@@ -1,5 +1,4 @@
-import { API_URL } from './config.js';
-import { getAreaClass, getBadgeClass, openModalById, closeModalById, renderGenericHistory } from './utils.js';
+import { getAreaClass, getBadgeClass, openModalById, closeModalById, renderGenericHistory, apiFetch } from './utils.js';
 
 export async function renderStudentDashboard(email, targetContainerId = 'app') {
     const app = document.getElementById(targetContainerId);
@@ -58,6 +57,9 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                 </div>
                 ` : ''}
 
+                <!-- Controle Financeiro / Mensalidades -->
+                <div id="payment-card-container"></div>
+
                 <!-- Histórico e Rituais -->
                 <section class="animate-fade-in">
                     <div id="rituals-list">
@@ -78,7 +80,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
     }
 
     if (!document.getElementById('history-modal')) {
-        modalsContainer.innerHTML += `
+        modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="history-modal" class="modal">
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px;">
@@ -99,11 +101,11 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                     <div id="modal-history-list" style="overflow-y: auto; max-height: 50vh; padding-right: 5px; display: flex; flex-direction: column; gap: 10px;"></div>
                 </div>
             </div>
-        `;
+        `);
     }
 
     if (!document.getElementById('justification-modal')) {
-        modalsContainer.innerHTML += `
+        modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="justification-modal" class="modal">
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px;">
@@ -126,7 +128,39 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                     <div id="justification-feedback" style="margin-top: 15px; text-align: center; font-size: 0.9rem;"></div>
                 </div>
             </div>
-        `;
+        `);
+    }
+
+    if (!document.getElementById('upload-receipt-modal')) {
+        modalsContainer.insertAdjacentHTML('beforeend', `
+            <div id="upload-receipt-modal" class="modal">
+                <div class="modal-content" style="max-width: 450px; width: 100%;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                        <h2 style="margin:0; font-size:1.5rem; font-weight:800; letter-spacing:-0.03em;">Enviar Comprovante</h2>
+                        <span id="close-upload-receipt-modal" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1;">&times;</span>
+                    </div>
+
+                    <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom: 20px;">
+                        Selecione o arquivo do comprovante para o mês de <strong id="upload-receipt-month" style="color:var(--accent)"></strong>.
+                    </p>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color:#fff; font-size:0.9rem;">Arquivo (Imagem ou PDF):</label>
+                        <input type="file" id="receipt-file-input" accept="image/*,application/pdf" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-size: 0.9rem; outline: none;">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color:#fff; font-size:0.9rem;">Observações (Opcional):</label>
+                        <textarea id="receipt-obs-input" rows="3" placeholder="Ex: Pagando dois meses juntos, ou observação do pagamento..." style="width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-size: 0.9rem; outline: none; resize: vertical;"></textarea>
+                    </div>
+
+                    <button id="btn-submit-receipt" style="width: 100%; padding: 14px; font-size: 1rem; border-radius: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; background: var(--primary); color: #fff; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s;">
+                        Enviar Comprovante
+                    </button>
+                    <div id="upload-receipt-feedback" style="margin-top: 15px; text-align: center; font-size: 0.9rem;"></div>
+                </div>
+            </div>
+        `);
     }
 
     // Bind events
@@ -183,6 +217,69 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
         closeModalById('justification-modal');
     });
 
+    document.getElementById('close-upload-receipt-modal').addEventListener('click', () => {
+        closeModalById('upload-receipt-modal');
+    });
+
+    document.getElementById('btn-submit-receipt').addEventListener('click', async () => {
+        const fileInput = document.getElementById('receipt-file-input');
+        const feedback = document.getElementById('upload-receipt-feedback');
+        const obsInput = document.getElementById('receipt-obs-input');
+        
+        if (!fileInput.files || fileInput.files.length === 0) {
+            feedback.innerHTML = '<span style="color:var(--danger)">Selecione um arquivo.</span>';
+            return;
+        }
+        
+        const file = fileInput.files[0];
+        if (file.size > 4 * 1024 * 1024) {
+            feedback.innerHTML = '<span style="color:var(--danger)">Arquivo muito grande (máximo 4MB).</span>';
+            return;
+        }
+        
+        const btn = document.getElementById('btn-submit-receipt');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span style="font-size: 0.9rem; opacity: 0.8;">Enviando...</span>';
+        btn.disabled = true;
+        
+        const reader = new FileReader();
+        reader.onload = async function (e) {
+            const base64Data = e.target.result;
+            try {
+                const userName = document.getElementById('user-name').innerText;
+                const json = await apiFetch('uploadReceipt', {
+                    method: 'POST',
+                    data: {
+                        email: email,
+                        nome: userName,
+                        mes: window.currentUploadMonth,
+                        ano: new Date().getFullYear(),
+                        fileBase64: base64Data,
+                        fileName: file.name,
+                        mimeType: file.type,
+                        obs: obsInput ? obsInput.value.trim() : ""
+                    }
+                });
+                
+                if (json.status === 'success') {
+                    feedback.innerHTML = '<span style="color:var(--success)">Comprovante enviado com sucesso!</span>';
+                    setTimeout(() => {
+                        closeModalById('upload-receipt-modal');
+                        renderStudentDashboard(email, targetContainerId);
+                    }, 2000);
+                } else {
+                    feedback.innerHTML = `<span style="color:var(--danger)">Erro: ${json.message}</span>`;
+                }
+            } catch (err) {
+                feedback.innerHTML = '<span style="color:var(--danger)">Erro ao conectar com o servidor.</span>';
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+
     document.getElementById('btn-submit-justification').addEventListener('click', async () => {
         const text = document.getElementById('justification-text').value.trim();
         const feedback = document.getElementById('justification-feedback');
@@ -199,19 +296,15 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
         
         try {
             const userName = document.getElementById('user-name').innerText;
-            const res = await fetch(API_URL, {
+            const json = await apiFetch('sendJustification', {
                 method: 'POST',
-                body: JSON.stringify({
-                    action: 'sendJustification',
-                    data: {
-                        email: email,
-                        nome: userName,
-                        motivo: text,
-                        dataEvento: window.currentJustificationDate // Adiciona a data do evento
-                    }
-                })
+                data: {
+                    email: email,
+                    nome: userName,
+                    motivo: text,
+                    dataEvento: window.currentJustificationDate
+                }
             });
-            const json = await res.json();
             
             if (json.status === 'success') {
                 feedback.innerHTML = '<span style="color:var(--success)">Justificativa enviada com sucesso!</span>';
@@ -243,20 +336,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
 
     // Fetch Data
     try {
-        const res = await fetch(`${API_URL}?action=getUserData&email=${encodeURIComponent(email)}`, {
-            redirect: 'follow',
-            headers: { 'Accept': 'application/json' }
-        });
-
-        const text = await res.text();
-        let json;
-        try {
-            json = JSON.parse(text);
-        } catch (parseErr) {
-            console.error("getUserData: Resposta não é JSON válido:", text.substring(0, 300));
-            showError("Servidor retornou resposta inválida. Tente recarregar.");
-            return;
-        }
+        const json = await apiFetch('getUserData', { params: { email } });
 
         if (json.status === "success") {
             showUserData(json.data);
@@ -310,6 +390,109 @@ function showUserData(data) {
             const gpsMsg = document.getElementById('gps-msg');
             if (gpsMsg) gpsMsg.innerText = data.blockReason || "Hoje não é dia de rito da sua turma.";
         }
+    }
+
+    // Renderizar painel financeiro (Mensalidades)
+    const paymentContainer = document.getElementById('payment-card-container');
+    if (paymentContainer) {
+        paymentContainer.innerHTML = '';
+        
+        const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+        const currentYear = new Date().getFullYear();
+        
+        const payCard = document.createElement('div');
+        payCard.className = 'presence-card animate-fade-in';
+        payCard.style.background = 'var(--glass-bg)';
+        payCard.style.padding = '24px';
+        payCard.style.borderRadius = '20px';
+        payCard.style.border = '1px solid var(--glass-border)';
+        payCard.style.boxShadow = 'var(--premium-shadow)';
+        payCard.style.marginBottom = '20px';
+        payCard.style.position = 'relative';
+
+        let gridHtml = '';
+        meses.forEach(m => {
+            const payInfo = data.payments ? data.payments[m] : null;
+            let status = "Em Aberto";
+            let link = "";
+            let obsAluno = "";
+            let obsAdmin = "";
+
+            if (payInfo) {
+                status = payInfo.status;
+                link = payInfo.link;
+                obsAluno = payInfo.obsAluno;
+                obsAdmin = payInfo.obsAdmin;
+            }
+
+            let badgeColor = "#ef4444"; // Aberto (Red)
+            let badgeText = "Em Aberto";
+            let actionBtn = "";
+
+            if (status === "Aprovado" || status === "Pago") {
+                badgeColor = "#10b981"; // Pago (Green)
+                badgeText = "Pago";
+                if (link) {
+                    actionBtn = `<a href="${link}" target="_blank" style="font-size:0.75rem; color:var(--accent); text-decoration:none; margin-top:8px; display:inline-block; font-weight:500;">📎 Ver Recibo</a>`;
+                }
+            } else if (status === "Pendente") {
+                badgeColor = "#f59e0b"; // Pendente (Orange)
+                badgeText = "Pendente";
+                if (link) {
+                    actionBtn = `<a href="${link}" target="_blank" style="font-size:0.75rem; color:var(--accent); text-decoration:none; margin-top:8px; display:inline-block; font-weight:500;">📎 Ver Recibo</a>`;
+                }
+            } else if (status === "Rejeitado") {
+                badgeColor = "#ef4444"; // Rejeitado (Red)
+                badgeText = "Recusado";
+                actionBtn = `
+                    <button class="btn-upload-receipt-trigger" data-month="${m}" style="margin-top:8px; padding:6px 10px; font-size:0.75rem; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.2); color:#fff; border-radius:8px; cursor:pointer; font-weight:600; width:100%; transition:all 0.2s;">
+                        Reenviar 📎
+                    </button>
+                    ${obsAdmin ? `<div style="font-size:0.7rem; color:#ef4444; margin-top:6px; font-style:italic; line-height:1.2; word-break:break-word;">Motivo: ${obsAdmin}</div>` : ''}
+                `;
+            } else {
+                actionBtn = `
+                    <button class="btn-upload-receipt-trigger" data-month="${m}" style="margin-top:8px; padding:6px 10px; font-size:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:#fff; border-radius:8px; cursor:pointer; font-weight:600; width:100%; transition:all 0.2s;">
+                        Anexar 📎
+                    </button>
+                `;
+            }
+
+            gridHtml += `
+                <div style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); border-radius:14px; padding:12px; display:flex; flex-direction:column; align-items:center; justify-content:space-between; text-align:center; min-height:110px;">
+                    <span style="font-weight:700; color:#fff; font-size:0.85rem;">${m}</span>
+                    <span class="badge" style="background:${badgeColor}15; color:${badgeColor}; border:1px solid ${badgeColor}30; font-size:0.6rem; padding:2px 6px; border-radius:4px; margin-top:6px; text-transform:uppercase;">
+                        ${badgeText}
+                    </span>
+                    ${actionBtn}
+                </div>
+            `;
+        });
+
+        payCard.innerHTML = `
+            <h3 style="margin-top:0; margin-bottom:6px; font-weight:700; font-size:1.2rem; color:#fff; letter-spacing:-0.02em;">Mensalidades de ${currentYear}</h3>
+            <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:20px;">Acompanhe o status e envie comprovantes para a administração.</p>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(110px, 1fr)); gap:10px;">
+                ${gridHtml}
+            </div>
+        `;
+        paymentContainer.appendChild(payCard);
+        
+        // Bind upload triggers
+        document.querySelectorAll('.btn-upload-receipt-trigger').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const m = e.currentTarget.getAttribute('data-month');
+                window.currentUploadMonth = m;
+                document.getElementById('upload-receipt-month').innerText = m;
+                const feedback = document.getElementById('upload-receipt-feedback');
+                if (feedback) feedback.innerHTML = '';
+                const fileInput = document.getElementById('receipt-file-input');
+                if (fileInput) fileInput.value = '';
+                const obsInput = document.getElementById('receipt-obs-input');
+                if (obsInput) obsInput.value = '';
+                openModalById('upload-receipt-modal');
+            });
+        });
     }
 
     listDiv.innerHTML = '';
@@ -424,12 +607,10 @@ function markSelfPresence(email) {
             };
 
             try {
-                const response = await fetch(API_URL, {
+                const res = await apiFetch('registerPresence', {
                     method: 'POST',
-                    body: JSON.stringify(data)
+                    data: data.data
                 });
-
-                const res = await response.json();
 
                 if (res.status === "success") {
                     btn.innerHTML = "✅ Presença Confirmada!";

@@ -1,10 +1,13 @@
-import { API_URL } from './config.js';
-import { getBadgeClass, openModalById, closeModalById, renderGenericHistory, normalizeText } from './utils.js';
+import { getBadgeClass, openModalById, closeModalById, renderGenericHistory, normalizeText, apiFetch } from './utils.js';
 import { renderStudentDashboard } from './student.js';
 
 export async function renderAdminDashboard(email) {
     const role = localStorage.getItem('tuig_role') || 'admin';
     const isMaster = role === 'master_admin';
+    const emailClean = email.toLowerCase().trim();
+    const isSpecialEmail = emailClean === 'andreiaandy07@gmail.com' || emailClean === 'albertofit7@gmail.com';
+    const hasFullAdminAccess = (role === 'master_admin' || role === 'admin') && !isSpecialEmail;
+    const hasReportAccess = isMaster || isSpecialEmail;
 
     const app = document.getElementById('app');
 
@@ -21,12 +24,14 @@ export async function renderAdminDashboard(email) {
 
         <nav class="tab-container" style="display: flex; gap: 8px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 18px; margin-bottom: 40px; border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; justify-content: center;">
             ${isMaster ? `<button id="btn-tab-dashboard" class="tab-button" data-tab="dashboard" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Painel Gerencial</button>` : ''}
-            <button id="btn-tab-admin" class="tab-button active" data-tab="admin" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Gestão de Alunos</button>
+            ${hasFullAdminAccess ? `<button id="btn-tab-admin" class="tab-button active" data-tab="admin" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Gestão de Alunos</button>` : ''}
+            ${hasFullAdminAccess ? `<button id="btn-tab-finance" class="tab-button" data-tab="finance" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Financeiro</button>` : ''}
+            ${hasReportAccess ? `<button id="btn-tab-reports" class="tab-button ${!hasFullAdminAccess ? 'active' : ''}" data-tab="reports" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Relatórios de Rituais</button>` : ''}
             <button id="btn-tab-student" class="tab-button" data-tab="student" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Minha Ficha</button>
         </nav>
 
         <!-- Seção Administrativa -->
-        <section id="section-admin">
+        <section id="section-admin" class="${!hasFullAdminAccess ? 'hidden' : ''}">
             <div class="presence-card" style="background: rgba(255,255,255,0.02); padding: 20px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 30px;">
                 <h3 style="margin-bottom: 15px; font-weight: 500;">Presença no Terreiro</h3>
 
@@ -101,6 +106,159 @@ export async function renderAdminDashboard(email) {
              <!-- Placeholder para injeção do renderStudentDashboard mas na mesma tela -->
              <div id="student-container"></div>
         </section>
+
+        <!-- Seção Financeiro (Mensalidades) -->
+        <section id="section-finance" class="hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px;">
+                <h2 style="margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em;">Controle Financeiro</h2>
+            </div>
+
+            <!-- Fila de Comprovantes Pendentes -->
+            <div class="card animate-fade-in" style="background: rgba(255,255,255,0.02); padding: 24px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 30px;">
+                <h3 style="margin-top: 0; margin-bottom: 15px; font-weight: 700; font-size: 1.15rem; color: #fff; display: flex; align-items: center; gap: 8px;">
+                    <span>⏳</span> Comprovantes Pendentes
+                </h3>
+                <div id="finance-pending-container" style="display: flex; flex-direction: column; gap: 12px;">
+                    <span style="color: var(--text-muted); font-size: 0.9rem;">Carregando pendências...</span>
+                </div>
+            </div>
+
+            <!-- Relatório Geral de Mensalidades (Matriz) -->
+            <div class="card animate-fade-in" style="background: rgba(255,255,255,0.02); padding: 24px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
+                    <h3 style="margin:0; font-weight:700; font-size:1.15rem; color:#fff;">Status de Mensalidades (Ano Corrente)</h3>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                        <input type="text" id="finance-search-input" placeholder="Buscar aluno..." style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: #fff; margin-bottom: 0; width: 200px; font-size: 0.9rem;">
+                        <select id="finance-turma-filter" style="padding: 8px 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-size: 0.9rem; outline: none;">
+                            <option value="all">Todas as Turmas</option>
+                            <option value="sexta">Sexta</option>
+                            <option value="sabado">Sábado</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container" style="overflow-x: auto; max-width: 100%;">
+                    <table class="admin-table" style="font-size: 0.85rem; width: 100%; border-spacing: 0 4px;">
+                        <thead>
+                            <tr>
+                                <th style="padding: 10px 14px;">Aluno</th>
+                                <th style="padding: 10px 14px; text-align: center;">Jan</th>
+                                <th style="padding: 10px 14px; text-align: center;">Fev</th>
+                                <th style="padding: 10px 14px; text-align: center;">Mar</th>
+                                <th style="padding: 10px 14px; text-align: center;">Abr</th>
+                                <th style="padding: 10px 14px; text-align: center;">Mai</th>
+                                <th style="padding: 10px 14px; text-align: center;">Jun</th>
+                                <th style="padding: 10px 14px; text-align: center;">Jul</th>
+                                <th style="padding: 10px 14px; text-align: center;">Ago</th>
+                                <th style="padding: 10px 14px; text-align: center;">Set</th>
+                                <th style="padding: 10px 14px; text-align: center;">Out</th>
+                                <th style="padding: 10px 14px; text-align: center;">Nov</th>
+                                <th style="padding: 10px 14px; text-align: center;">Dez</th>
+                            </tr>
+                        </thead>
+                        <tbody id="finance-table-body">
+                            <!-- Preenchido dinamicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Relatórios de Rituais (Autorizados Only) -->
+        ${hasReportAccess ? `
+        <section id="section-reports" class="${!hasFullAdminAccess ? '' : 'hidden'}" style="margin-bottom: 40px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px;">
+                <h2 style="margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em;">Relatórios de Rituais</h2>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button id="btn-export-reports-csv" style="background-color: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); font-size: 0.8rem; font-weight: 600; padding: 10px 18px; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        <span>📥</span> Baixar CSV
+                    </button>
+                    <button id="btn-export-reports-pdf" style="background-color: var(--primary); color: white; border: 1px solid rgba(255,255,255,0.1); font-size: 0.8rem; font-weight: 600; padding: 10px 18px; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: var(--glow-shadow);">
+                        <span>📄</span> Exportar PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card de Filtros -->
+            <div class="card animate-fade-in" style="background: var(--glass-bg); padding: 24px; border-radius: 20px; border: 1px solid var(--glass-border); margin-bottom: 30px;">
+                <h3 style="margin-top: 0; margin-bottom: 20px; font-weight: 700; font-size: 1.1rem; color: #fff; display: flex; align-items: center; gap: 8px;">
+                    <span>🔍</span> Configurar Filtros
+                </h3>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Ritual de Referência</label>
+                        <select id="report-selected-ritual" style="width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; outline: none; font-size: 0.95rem;">
+                            <!-- Dinamicamente preenchido -->
+                            <option value="">Carregando rituais...</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Condição de Filtro</label>
+                        <select id="report-filter-condition" style="width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; outline: none; font-size: 0.95rem;">
+                            <option value="only">Possui apenas o ritual selecionado e nenhum outro</option>
+                            <option value="has">Possui o ritual selecionado (mesmo que possua outros)</option>
+                            <option value="not_has">Não possui o ritual selecionado</option>
+                            <option value="custom">Filtro Personalizado (Múltiplos Rituais)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Painel Customizado (Escondido por padrão) -->
+                <div id="report-custom-filter-panel" class="hidden" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px; margin-top: 20px;">
+                    <h4 style="margin-bottom: 15px; font-size: 0.95rem; font-weight: 600; color: var(--accent);">Filtro por Múltiplos Rituais</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <div style="font-size: 0.8rem; color: var(--success); font-weight: 700; text-transform: uppercase; margin-bottom: 10px;">Deve Possuir (AND)</div>
+                            <div id="custom-filter-must-have" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; padding: 10px; background: rgba(0,0,0,0.15); border-radius: 10px; border: 1px solid rgba(255,255,255,0.03);">
+                                <!-- Checkboxes dinâmicos -->
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.8rem; color: #ef4444; font-weight: 700; text-transform: uppercase; margin-bottom: 10px;">NÃO Deve Possuir (NOR)</div>
+                            <div id="custom-filter-must-not-have" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; padding: 10px; background: rgba(0,0,0,0.15); border-radius: 10px; border: 1px solid rgba(255,255,255,0.03);">
+                                <!-- Checkboxes dinâmicos -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabela de Resultados -->
+            <div class="card animate-fade-in" style="background: rgba(255,255,255,0.02); padding: 24px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
+                    <div id="report-results-count" style="font-weight: 600; font-size: 1rem; color: var(--accent);">
+                        Encontrando médiuns...
+                    </div>
+                    <div style="position: relative; width: 280px; max-width: 100%;">
+                        <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%);">🔍</span>
+                        <input type="text" id="report-search-input" placeholder="Buscar nos resultados..." style="padding: 10px 10px 10px 35px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: #fff; width: 100%; margin-bottom: 0; box-sizing: border-box; font-size: 0.9rem;">
+                    </div>
+                </div>
+
+                <div id="report-loader" class="loader active"></div>
+
+                <div class="table-container" id="report-table-container" style="overflow-x: auto; display: none;">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Nome / Turma</th>
+                                <th>E-mail</th>
+                                <th>Rituais Realizados</th>
+                            </tr>
+                        </thead>
+                        <tbody id="report-table-body">
+                            <!-- Injeção dinâmica -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="report-empty-message" style="text-align: center; color: var(--text-muted); padding: 40px 0; display: none;">
+                    Nenhum médium corresponde aos critérios selecionados.
+                </div>
+            </div>
+        </section>
+        ` : ''}
 
         <!-- Seção Dashboard Gerencial -->
         <section id="section-dashboard" class="hidden" style="margin-bottom: 40px;">
@@ -181,6 +339,9 @@ export async function renderAdminDashboard(email) {
     window.allUsers = [];
     window.currentUserEmail = email;
     window.dashboardCarregado = false;
+    window.reportsCarregados = false;
+    window.reportUsers = [];
+    window.reportUniqueRituals = [];
     window.chartEvolucaoInstance = null;
     window.chartTurmasInstance = null;
 
@@ -193,7 +354,7 @@ export async function renderAdminDashboard(email) {
     }
 
     if (!document.getElementById('user-details-modal')) {
-        modalsContainer.innerHTML += `
+        modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="user-details-modal" class="modal">
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:32px;">
@@ -205,11 +366,57 @@ export async function renderAdminDashboard(email) {
                     </div>
                 </div>
             </div>
-        `;
+        `);
+    }
+
+    if (!document.getElementById('finance-verification-modal')) {
+        modalsContainer.insertAdjacentHTML('beforeend', `
+            <div id="finance-verification-modal" class="modal">
+                <div class="modal-content" style="max-width: 480px; width: 100%;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                        <h2 style="margin:0; font-size:1.5rem; font-weight:800; letter-spacing:-0.03em;">Validar Pagamento</h2>
+                        <span id="close-finance-verification" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1;">&times;</span>
+                    </div>
+
+                    <div style="background:rgba(255,255,255,0.02); padding:16px; border-radius:12px; margin-bottom:20px; font-size:0.9rem; line-height:1.4; border:1px solid rgba(255,255,255,0.05);">
+                        <div><strong>Aluno:</strong> <span id="fv-student-name" style="color:#fff"></span></div>
+                        <div><strong>E-mail:</strong> <span id="fv-student-email" style="color:var(--accent)"></span></div>
+                        <div><strong>Mês de Referência:</strong> <span id="fv-month-ref" style="color:#fff"></span></div>
+                        <div id="fv-receipt-link-container" style="margin-top:10px; display:none;">
+                            <strong>Comprovante:</strong> <a id="fv-receipt-link" href="#" target="_blank" style="color:var(--accent); font-weight:600; text-decoration:none;">📎 Abrir Comprovante</a>
+                        </div>
+                        <div id="fv-obs-aluno-container" style="margin-top:10px; display:none;">
+                            <strong>Observações Aluno:</strong> <div id="fv-obs-aluno" style="background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:6px; margin-top:4px; font-style:italic;"></div>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; color:#fff; font-size:0.9rem;">Observações da Validação (Admin):</label>
+                        <textarea id="fv-obs-admin" rows="3" placeholder="Caso rejeite, explique o motivo..." style="width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-size: 0.9rem; outline: none; resize: vertical;"></textarea>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom: 12px;">
+                        <button id="fv-btn-approve" style="padding:12px; font-weight:700; background:var(--success); color:#fff; border-radius:8px; border:none; cursor:pointer; width:100%;">
+                            Aprovar Pagamento
+                        </button>
+                        <button id="fv-btn-reject" style="padding:12px; font-weight:700; background:#ef4444; color:#fff; border-radius:8px; border:none; cursor:pointer; width:100%;">
+                            Recusar Comprovante
+                        </button>
+                    </div>
+                    <button id="fv-btn-manual-pay" style="width:100%; padding:12px; font-weight:700; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); color:#fff; border-radius:8px; cursor:pointer; margin-bottom:12px;">
+                        Marcar como Pago (Sem Comprovante)
+                    </button>
+                    <button id="fv-btn-manual-unpay" style="width:100%; padding:12px; font-weight:700; background:rgba(239, 68, 68, 0.08); border:1px solid rgba(239, 68, 68, 0.2); color:#f87171; border-radius:8px; cursor:pointer;">
+                        Reverter para Em Aberto (Excluir)
+                    </button>
+                    <div id="finance-verification-feedback" style="margin-top: 15px; text-align: center; font-size: 0.9rem;"></div>
+                </div>
+            </div>
+        `);
     }
 
     if (!document.getElementById('bulk-presence-modal')) {
-        modalsContainer.innerHTML += `
+        modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="bulk-presence-modal" class="modal">
                 <div class="modal-content" style="max-width: 600px; width: 100%;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
@@ -247,7 +454,7 @@ export async function renderAdminDashboard(email) {
                     </button>
                 </div>
             </div>
-        `;
+        `);
     }
 
     // Bind UI Events
@@ -326,26 +533,126 @@ export async function renderAdminDashboard(email) {
     document.getElementById('btn-export-pdf').addEventListener('click', exportDashboardPDF);
     document.getElementById('close-user-details').addEventListener('click', () => closeModalById('user-details-modal'));
 
+    document.getElementById('close-finance-verification').addEventListener('click', () => {
+        closeModalById('finance-verification-modal');
+    });
+    document.getElementById('fv-btn-approve').addEventListener('click', () => submeterValidacao("Aprovado"));
+    document.getElementById('fv-btn-reject').addEventListener('click', () => submeterValidacao("Rejeitado"));
+    document.getElementById('fv-btn-manual-pay').addEventListener('click', () => submeterAjusteManual("Pago"));
+    document.getElementById('fv-btn-manual-unpay').addEventListener('click', () => submeterAjusteManual("Em Aberto"));
+
+    document.getElementById('finance-search-input').addEventListener('keyup', renderizarFinanceiro);
+    document.getElementById('finance-turma-filter').addEventListener('change', renderizarFinanceiro);
+
+    if (hasReportAccess) {
+        document.getElementById('btn-export-reports-pdf').addEventListener('click', exportReportsPDF);
+        document.getElementById('btn-export-reports-csv').addEventListener('click', exportReportsCSV);
+        document.getElementById('report-selected-ritual').addEventListener('change', filtrarERenderizarRelatorio);
+        document.getElementById('report-filter-condition').addEventListener('change', (e) => {
+            const condition = e.target.value;
+            const panel = document.getElementById('report-custom-filter-panel');
+            if (condition === 'custom') {
+                panel.classList.remove('hidden');
+            } else {
+                panel.classList.add('hidden');
+            }
+            filtrarERenderizarRelatorio();
+        });
+        document.getElementById('report-search-input').addEventListener('keyup', filtrarERenderizarRelatorio);
+    }
+
+    // Delegação de Eventos para os elementos dinâmicos das tabelas/listas
+    const usersTableBody = document.getElementById('users-table-body');
+    if (usersTableBody) {
+        usersTableBody.addEventListener('click', (e) => {
+            const btn = e.target.closest('.details-btn');
+            if (btn) {
+                openUserDetails(btn.getAttribute('data-email'), btn.getAttribute('data-nome'));
+            }
+        });
+    }
+
+    const financeTableBody = document.getElementById('finance-table-body');
+    if (financeTableBody) {
+        financeTableBody.addEventListener('click', (e) => {
+            const cell = e.target.closest('.finance-cell');
+            if (cell) {
+                const email = cell.getAttribute('data-email');
+                const nome = cell.getAttribute('data-nome');
+                const mes = cell.getAttribute('data-month');
+                const link = cell.getAttribute('data-link');
+                const obs = decodeURIComponent(cell.getAttribute('data-obs'));
+                abrirModalVerificacao(email, nome, mes, link, obs);
+            }
+        });
+    }
+
+    const financePendingContainer = document.getElementById('finance-pending-container');
+    if (financePendingContainer) {
+        financePendingContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('.btn-verify-receipt-trigger');
+            if (btn) {
+                const email = btn.getAttribute('data-email');
+                const nome = btn.getAttribute('data-nome');
+                const mes = btn.getAttribute('data-month');
+                const link = btn.getAttribute('data-link');
+                const obs = decodeURIComponent(btn.getAttribute('data-obs'));
+                abrirModalVerificacao(email, nome, mes, link, obs);
+            }
+        });
+    }
+
+    const bulkListContainer = document.getElementById('bulk-list-container');
+    if (bulkListContainer) {
+        bulkListContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('.toggle-presence');
+            if (btn) {
+                const idx = btn.getAttribute('data-idx');
+                const u = window.currentBulkList[idx];
+                
+                // Só permite alternar se não estava presente originalmente
+                if (u.originalPresent) {
+                    btn.style.transform = 'scale(0.95)';
+                    setTimeout(() => btn.style.transform = 'scale(1)', 150);
+                    return;
+                }
+                
+                u.isPresent = !u.isPresent;
+                renderBulkList(window.currentBulkList); // Re-renderiza para atualizar as cores
+            }
+        });
+    }
+
+    if (hasReportAccess) {
+        const mustHaveContainer = document.getElementById('custom-filter-must-have');
+        if (mustHaveContainer) {
+            mustHaveContainer.addEventListener('change', (e) => {
+                if (e.target.tagName === 'INPUT') {
+                    filtrarERenderizarRelatorio();
+                }
+            });
+        }
+        const mustNotHaveContainer = document.getElementById('custom-filter-must-not-have');
+        if (mustNotHaveContainer) {
+            mustNotHaveContainer.addEventListener('change', (e) => {
+                if (e.target.tagName === 'INPUT') {
+                    filtrarERenderizarRelatorio();
+                }
+            });
+        }
+    }
+
     // Fetch initial data
-    fetchAdminData(email);
+    if (hasFullAdminAccess) {
+        fetchAdminData(email);
+    } else {
+        carregarRelatoriosRituais();
+    }
 }
 
 async function fetchAdminData(email) {
     try {
-        const res = await fetch(`${API_URL}?action=getAdminData&email=${encodeURIComponent(email)}`, {
-            redirect: 'follow',
-            headers: { 'Accept': 'application/json' }
-        });
-
-        const text = await res.text();
-        let json;
-        try {
-            json = JSON.parse(text);
-        } catch (parseErr) {
-            console.error("getAdminData: Resposta não é JSON válido:", text.substring(0, 300));
-            document.getElementById('users-table-body').innerHTML = `<tr><td colspan="4" style="color:#ef4444;text-align:center;">Servidor retornou resposta inválida. Tente recarregar.</td></tr>`;
-            return;
-        }
+        const json = await apiFetch('getAdminData', { params: { email } });
 
         if (json.status === "success") {
             const allAPIUsers = json.data;
@@ -417,15 +724,6 @@ function renderAdminTable(users, role) {
     });
 
     tbody.innerHTML = html;
-
-    // Bind dynamic buttons
-    if (role === 'master_admin') {
-        tbody.querySelectorAll('.details-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                openUserDetails(e.currentTarget.getAttribute('data-email'), e.currentTarget.getAttribute('data-nome'));
-            });
-        });
-    }
 }
 
 function reRenderAdminTable() {
@@ -458,8 +756,7 @@ async function openUserDetails(emailBusca, nome) {
     openModalById('user-details-modal');
 
     try {
-        const res = await fetch(`${API_URL}?action=getUserData&email=${encodeURIComponent(emailBusca)}`);
-        const json = await res.json();
+        const json = await apiFetch('getUserData', { params: { email: emailBusca } });
 
         let container = document.getElementById('modal-user-rituals');
         if (json.status === "success") {
@@ -518,6 +815,8 @@ function switchTab(tab) {
     const adminSection = document.getElementById('section-admin');
     const studentSection = document.getElementById('section-student');
     const dashboardSection = document.getElementById('section-dashboard');
+    const reportsSection = document.getElementById('section-reports');
+    const financeSection = document.getElementById('section-finance');
 
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelector(`.tab-button[data-tab="${tab}"]`).classList.add('active');
@@ -525,9 +824,16 @@ function switchTab(tab) {
     adminSection.classList.add('hidden');
     studentSection.classList.add('hidden');
     dashboardSection.classList.add('hidden');
+    if (reportsSection) reportsSection.classList.add('hidden');
+    if (financeSection) financeSection.classList.add('hidden');
 
     if (tab === 'admin') {
         adminSection.classList.remove('hidden');
+    } else if (tab === 'finance') {
+        if (financeSection) {
+            financeSection.classList.remove('hidden');
+            carregarFinanceiro();
+        }
     } else if (tab === 'student') {
         studentSection.classList.remove('hidden');
         // Renderiza visao de estudante na aba
@@ -540,6 +846,13 @@ function switchTab(tab) {
         if (!window.dashboardCarregado) {
             carregarDashboard();
         }
+    } else if (tab === 'reports') {
+        if (reportsSection) {
+            reportsSection.classList.remove('hidden');
+            if (!window.reportsCarregados) {
+                carregarRelatoriosRituais();
+            }
+        }
     }
 }
 
@@ -548,8 +861,7 @@ async function carregarDashboard() {
     if (btnEx) btnEx.innerText = "Carregando...";
 
     try {
-        const res = await fetch(`${API_URL}?action=getDashboardStats`);
-        const json = await res.json();
+        const json = await apiFetch('getDashboardStats');
 
         if (json.status === "success") {
             window.dashboardCarregado = true;
@@ -711,7 +1023,12 @@ function exportDashboardPDF() {
 
     btn.style.display = 'none';
     const oldBg = document.body.style.background;
-    document.body.style.background = '#0f172a';
+    document.body.style.background = '#020617';
+
+    // Configura fundo escuro temporário para o PDF ficar legível e bonito
+    section.style.background = '#020617';
+    section.style.padding = '20px';
+    section.style.borderRadius = '12px';
 
     var opt = {
         margin: 10,
@@ -724,6 +1041,16 @@ function exportDashboardPDF() {
     window.html2pdf().set(opt).from(section).save().then(() => {
         btn.style.display = 'block';
         document.body.style.background = oldBg;
+        section.style.background = '';
+        section.style.padding = '';
+        section.style.borderRadius = '';
+    }).catch(err => {
+        console.error("Erro ao gerar PDF:", err);
+        btn.style.display = 'block';
+        document.body.style.background = oldBg;
+        section.style.background = '';
+        section.style.padding = '';
+        section.style.borderRadius = '';
     });
 }
 
@@ -765,11 +1092,16 @@ function markAdminPresence(targetId, loggedInEmail = null) {
             };
 
             try {
-                const response = await fetch(API_URL, {
+                const res = await apiFetch('registerPresence', {
                     method: 'POST',
-                    body: JSON.stringify(data)
+                    data: {
+                        studentEmail: targetId,
+                        registeredBy: loggedInEmail || targetId,
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        deviceId: getDeviceId()
+                    }
                 });
-                const res = await response.json();
 
                 if (res.status === "success") {
                     btn.innerHTML = "✅ Presença Confirmada!";
@@ -822,8 +1154,7 @@ async function loadBulkPresenceList() {
     btnSave.style.display = 'none';
 
     try {
-        const res = await fetch(`${API_URL}?action=getBulkPresenceList&date=${dateVal}&turma=${turmaVal}`);
-        const json = await res.json();
+        const json = await apiFetch('getBulkPresenceList', { params: { date: dateVal, turma: turmaVal } });
 
         if (json.status === "success") {
             const list = json.data;
@@ -877,24 +1208,6 @@ function renderBulkList(list) {
     });
 
     container.innerHTML = html;
-
-    container.querySelectorAll('.toggle-presence').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const idx = e.currentTarget.getAttribute('data-idx');
-            const u = window.currentBulkList[idx];
-            
-            // Só permite alternar se não estava presente originalmente
-            if (u.originalPresent) {
-                // Feedback visual simples
-                e.currentTarget.style.transform = 'scale(0.95)';
-                setTimeout(() => e.currentTarget.style.transform = 'scale(1)', 150);
-                return;
-            }
-            
-            u.isPresent = !u.isPresent;
-            renderBulkList(window.currentBulkList); // Re-renderiza para atualizar as cores
-        });
-    });
 }
 
 async function saveBulkPresenceList(adminEmail) {
@@ -928,11 +1241,14 @@ async function saveBulkPresenceList(adminEmail) {
     };
 
     try {
-        const response = await fetch(API_URL, {
+        const res = await apiFetch('saveBulkPresence', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            data: {
+                date: dateVal,
+                adminEmail: adminEmail,
+                presences: newPresences
+            }
         });
-        const res = await response.json();
 
         if (res.status === "success") {
             feedback.innerHTML = `<span style="color:#10b981">✅ ${res.message}</span>`;
@@ -956,3 +1272,545 @@ async function saveBulkPresenceList(adminEmail) {
         btnSave.disabled = false;
     }
 }
+
+async function carregarRelatoriosRituais() {
+    const loader = document.getElementById('report-loader');
+    const tableContainer = document.getElementById('report-table-container');
+    const emptyMsg = document.getElementById('report-empty-message');
+    const resultsCount = document.getElementById('report-results-count');
+    
+    loader.classList.add('active');
+    tableContainer.style.display = 'none';
+    emptyMsg.style.display = 'none';
+    resultsCount.innerText = 'Buscando dados no servidor...';
+    
+    try {
+        const email = window.currentUserEmail;
+        const json = await apiFetch('getRitualsReport', { params: { email } });
+        
+        if (json.status === 'success') {
+            window.reportsCarregados = true;
+            window.reportUsers = json.data.users;
+            window.reportUniqueRituals = json.data.uniqueRituals;
+            
+            // Popula o select de rituais
+            const select = document.getElementById('report-selected-ritual');
+            let selectHtml = '';
+            window.reportUniqueRituals.forEach(r => {
+                selectHtml += `<option value="${r}">${r}</option>`;
+            });
+            select.innerHTML = selectHtml;
+            
+            // Popula os checkboxes de filtros personalizados
+            const mustHaveContainer = document.getElementById('custom-filter-must-have');
+            const mustNotHaveContainer = document.getElementById('custom-filter-must-not-have');
+            
+            let mustHaveHtml = '';
+            let mustNotHaveHtml = '';
+            
+            window.reportUniqueRituals.forEach((r, idx) => {
+                mustHaveHtml += `
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#fff; cursor:pointer;">
+                        <input type="checkbox" class="report-must-have-cb" value="${r}" style="width:auto; margin-bottom:0;">
+                        <span>${r}</span>
+                    </label>
+                `;
+                mustNotHaveHtml += `
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#fff; cursor:pointer;">
+                        <input type="checkbox" class="report-must-not-have-cb" value="${r}" style="width:auto; margin-bottom:0;">
+                        <span>${r}</span>
+                    </label>
+                `;
+            });
+            
+            mustHaveContainer.innerHTML = mustHaveHtml;
+            mustNotHaveContainer.innerHTML = mustNotHaveHtml;
+            
+            filtrarERenderizarRelatorio();
+        } else {
+            resultsCount.innerText = 'Erro ao carregar relatório';
+            resultsCount.style.color = '#ef4444';
+            loader.classList.remove('active');
+            alert(json.message);
+        }
+    } catch (e) {
+        resultsCount.innerText = 'Erro ao carregar relatório';
+        resultsCount.style.color = '#ef4444';
+        loader.classList.remove('active');
+        console.error(e);
+        alert('Erro ao carregar dados do relatório.');
+    }
+}
+
+function filtrarERenderizarRelatorio() {
+    const selectedRitual = document.getElementById('report-selected-ritual').value;
+    const condition = document.getElementById('report-filter-condition').value;
+    const searchTerm = document.getElementById('report-search-input').value.toLowerCase().trim();
+    
+    const loader = document.getElementById('report-loader');
+    const tableContainer = document.getElementById('report-table-container');
+    const emptyMsg = document.getElementById('report-empty-message');
+    const resultsCount = document.getElementById('report-results-count');
+    const tbody = document.getElementById('report-table-body');
+    
+    // Filtro personalizado por checkboxes
+    const mustHaveCheckboxes = Array.from(document.querySelectorAll('.report-must-have-cb:checked')).map(cb => cb.value);
+    const mustNotHaveCheckboxes = Array.from(document.querySelectorAll('.report-must-not-have-cb:checked')).map(cb => cb.value);
+    
+    const filtered = window.reportUsers.filter(user => {
+        // 1. Filtrar por termo de busca
+        if (searchTerm) {
+            const searchString = (user.nome + " " + user.email + " " + user.turma).toLowerCase();
+            if (!searchString.includes(searchTerm)) return false;
+        }
+        
+        const userRitualNames = user.rituals.map(r => r.nome);
+        
+        // 2. Filtrar por condição de ritual
+        if (condition === 'only') {
+            // Possui apenas o ritual selecionado e nenhum outro
+            if (userRitualNames.length !== 1) return false;
+            if (userRitualNames[0] !== selectedRitual) return false;
+        } else if (condition === 'has') {
+            // Possui o ritual selecionado (mesmo que possua outros)
+            if (!userRitualNames.includes(selectedRitual)) return false;
+        } else if (condition === 'not_has') {
+            // Não possui o ritual selecionado
+            if (userRitualNames.includes(selectedRitual)) return false;
+        } else if (condition === 'custom') {
+            // Filtro Personalizado por checkboxes (AND e NOR)
+            // Deve possuir todos os rituais marcados em "mustHaveCheckboxes"
+            for (let req of mustHaveCheckboxes) {
+                if (!userRitualNames.includes(req)) return false;
+            }
+            // NÃO deve possuir nenhum dos rituais marcados em "mustNotHaveCheckboxes"
+            for (let forbidden of mustNotHaveCheckboxes) {
+                if (userRitualNames.includes(forbidden)) return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    // Renderizar
+    loader.classList.remove('active');
+    resultsCount.innerText = `${filtered.length} médium(ns) encontrado(s)`;
+    
+    if (filtered.length === 0) {
+        tableContainer.style.display = 'none';
+        emptyMsg.style.display = 'block';
+    } else {
+        emptyMsg.style.display = 'none';
+        tableContainer.style.display = 'block';
+        
+        let html = '';
+        filtered.forEach(u => {
+            let ritualsHtml = '';
+            if (u.rituals && u.rituals.length > 0) {
+                // Ordena os rituais por data decrescente
+                const sortedRituals = [...u.rituals].sort((a, b) => new Date(b.data) - new Date(a.data));
+                sortedRituals.forEach(r => {
+                    const d = new Date(r.data);
+                    const formattedDate = isNaN(d.getTime()) ? r.data : d.toLocaleDateString('pt-BR');
+                    ritualsHtml += `
+                        <div style="margin-bottom: 6px; display:flex; align-items:center; gap:8px;">
+                            <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: var(--accent); border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.75rem;">${r.nome}</span>
+                            <span style="font-size:0.8rem; color: var(--text-muted);">${formattedDate}</span>
+                            ${r.notas ? `<span style="font-size:0.75rem; color: #64748b; font-style: italic;">(${r.notas})</span>` : ''}
+                        </div>
+                    `;
+                });
+            } else {
+                ritualsHtml = '<span style="color:var(--text-muted); font-size:0.85rem; font-style:italic;">Nenhum ritual cadastrado</span>';
+            }
+            
+            html += `
+                <tr class="user-row">
+                    <td data-label="Nome / Turma">
+                        <div style="font-weight:700; color:#fff; font-size:1.05rem; letter-spacing:-0.01em;">${u.nome}</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted); margin-top:4px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">
+                            Turma: <span style="color:var(--accent)">${u.turma || 'N/A'}</span>
+                        </div>
+                    </td>
+                    <td data-label="E-mail" style="color:var(--text-muted); font-size:0.85rem; word-break: break-word; overflow-wrap: anywhere; font-weight:400;">${u.email}</td>
+                    <td data-label="Rituais Realizados">
+                        <div style="display:flex; flex-direction:column; gap:4px; align-items: flex-start;">${ritualsHtml}</div>
+                    </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+    }
+}
+
+function exportReportsPDF() {
+    if (!window.html2pdf) {
+        alert("O gerador de PDF está carregando, tente novamente em instantes.");
+        return;
+    }
+
+    const section = document.getElementById('section-reports');
+    const filterCard = document.querySelector('#section-reports .card');
+    const searchWrapper = document.getElementById('report-search-input').parentElement;
+    const btnPdf = document.getElementById('btn-export-reports-pdf');
+    const btnCsv = document.getElementById('btn-export-reports-csv');
+
+    btnPdf.style.display = 'none';
+    btnCsv.style.display = 'none';
+    if (filterCard) filterCard.style.display = 'none';
+    if (searchWrapper) searchWrapper.style.display = 'none';
+    
+    const oldBg = document.body.style.background;
+    document.body.style.background = '#020617';
+
+    // Configura fundo escuro temporário para o PDF ficar legível e bonito
+    section.style.background = '#020617';
+    section.style.padding = '20px';
+    section.style.borderRadius = '12px';
+
+    var opt = {
+        margin: 10,
+        filename: 'Relatorio_Rituais_TUIG.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    window.html2pdf().set(opt).from(section).save().then(() => {
+        btnPdf.style.display = 'inline-flex';
+        btnCsv.style.display = 'inline-flex';
+        if (filterCard) filterCard.style.display = 'block';
+        if (searchWrapper) searchWrapper.style.display = 'block';
+        document.body.style.background = oldBg;
+        section.style.background = '';
+        section.style.padding = '';
+        section.style.borderRadius = '';
+    }).catch(err => {
+        console.error("Erro ao gerar PDF:", err);
+        btnPdf.style.display = 'inline-flex';
+        btnCsv.style.display = 'inline-flex';
+        if (filterCard) filterCard.style.display = 'block';
+        if (searchWrapper) searchWrapper.style.display = 'block';
+        document.body.style.background = oldBg;
+        section.style.background = '';
+        section.style.padding = '';
+        section.style.borderRadius = '';
+        alert("Ocorreu um erro ao gerar o PDF. Verifique o console para mais detalhes.");
+    });
+}
+
+function exportReportsCSV() {
+    const selectedRitual = document.getElementById('report-selected-ritual').value;
+    const condition = document.getElementById('report-filter-condition').value;
+    const searchTerm = document.getElementById('report-search-input').value.toLowerCase().trim();
+    
+    const mustHaveCheckboxes = Array.from(document.querySelectorAll('.report-must-have-cb:checked')).map(cb => cb.value);
+    const mustNotHaveCheckboxes = Array.from(document.querySelectorAll('.report-must-not-have-cb:checked')).map(cb => cb.value);
+    
+    const filtered = window.reportUsers.filter(user => {
+        if (searchTerm) {
+            const searchString = (user.nome + " " + user.email + " " + user.turma).toLowerCase();
+            if (!searchString.includes(searchTerm)) return false;
+        }
+        
+        const userRitualNames = user.rituals.map(r => r.nome);
+        
+        if (condition === 'only') {
+            if (userRitualNames.length !== 1) return false;
+            if (userRitualNames[0] !== selectedRitual) return false;
+        } else if (condition === 'has') {
+            if (!userRitualNames.includes(selectedRitual)) return false;
+        } else if (condition === 'not_has') {
+            if (userRitualNames.includes(selectedRitual)) return false;
+        } else if (condition === 'custom') {
+            for (let req of mustHaveCheckboxes) {
+                if (!userRitualNames.includes(req)) return false;
+            }
+            for (let forbidden of mustNotHaveCheckboxes) {
+                if (userRitualNames.includes(forbidden)) return false;
+            }
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        alert("Nenhum dado para exportar.");
+        return;
+    }
+
+    let csvContent = "\uFEFFNome;Email;Turma;Rituais\r\n";
+    
+    filtered.forEach(u => {
+        const ritualsStr = u.rituals.map(r => {
+            const d = new Date(r.data);
+            const formattedDate = isNaN(d.getTime()) ? r.data : d.toLocaleDateString('pt-BR');
+            return `${r.nome} (${formattedDate})`;
+        }).join(" | ");
+        
+        const nomeEscaped = u.nome.replace(/"/g, '""');
+        const emailEscaped = u.email.replace(/"/g, '""');
+        const turmaEscaped = u.turma.replace(/"/g, '""');
+        const ritualsEscaped = ritualsStr.replace(/"/g, '""');
+        
+        csvContent += `"${nomeEscaped}";"${emailEscaped}";"${turmaEscaped}";"${ritualsEscaped}"\r\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `relatorio_rituais_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// ==========================================
+// FUNÇÕES DO PAINEL FINANCEIRO (ADMIN)
+// ==========================================
+
+async function carregarFinanceiro() {
+    const pendingContainer = document.getElementById('finance-pending-container');
+    const tableBody = document.getElementById('finance-table-body');
+    
+    if (pendingContainer) pendingContainer.innerHTML = '<div class="loader active"></div>';
+    if (tableBody) tableBody.innerHTML = '<tr><td colspan="13" style="text-align:center;"><div class="loader active"></div></td></tr>';
+    
+    try {
+        const json = await apiFetch('getFinancialReport', { params: { email: window.currentUserEmail } });
+        
+        if (json.status === "success") {
+            window.financeData = json.data;
+            renderizarFinanceiro();
+        } else {
+            showFinanceError(json.message);
+        }
+    } catch (err) {
+        showFinanceError("Erro ao conectar com o servidor.");
+    }
+}
+
+function renderizarFinanceiro() {
+    const pendingContainer = document.getElementById('finance-pending-container');
+    const tableBody = document.getElementById('finance-table-body');
+    const searchVal = document.getElementById('finance-search-input').value.toLowerCase();
+    const turmaVal = document.getElementById('finance-turma-filter').value;
+    
+    if (!window.financeData) return;
+    
+    // 1. Renderizar Comprovantes Pendentes
+    const pending = window.financeData.pending || [];
+    if (pending.length === 0) {
+        pendingContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: 20px 0; display: block;">Nenhum comprovante pendente de validação.</span>';
+    } else {
+        let pendingHtml = '';
+        pending.forEach(p => {
+            pendingHtml += `
+                <div style="background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.05); padding: 18px 24px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-weight: 700; color: #fff; font-size: 1rem;">${p.nome}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">
+                            Mês: <strong style="color: var(--accent)">${p.mes}</strong> | E-mail: ${p.email}
+                        </div>
+                        ${p.obsAluno ? `
+                        <div style="margin-top: 8px; font-size: 0.8rem; color: #cbd5e1; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 6px; border-left: 3px solid var(--primary); max-width: 100%;">
+                            <strong>Obs Aluno:</strong> "${p.obsAluno}"
+                        </div>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <a href="${p.link}" target="_blank" style="padding: 10px 14px; font-size: 0.8rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #fff; border-radius: 10px; cursor: pointer; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                            📎 Ver Arquivo
+                        </a>
+                        <button class="btn-verify-receipt-trigger" data-email="${p.email}" data-nome="${p.nome}" data-month="${p.mes}" data-link="${p.link}" data-obs="${encodeURIComponent(p.obsAluno || "")}" style="padding: 10px 14px; font-size: 0.8rem; background: var(--primary); color: #fff; border-radius: 10px; cursor: pointer; font-weight: 600; border: none;">
+                            Validar ⚖️
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        pendingContainer.innerHTML = pendingHtml;
+    }
+    
+    // 2. Renderizar Tabela de Mensalidades (Matrix)
+    const users = window.financeData.users || [];
+    const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+    
+    const filteredUsers = users.filter(u => {
+        const matchesSearch = !searchVal || normalizeText(u.nome + " " + u.email).includes(normalizeText(searchVal));
+        
+        let matchesTurma = true;
+        if (turmaVal !== 'all') {
+            const uTurmaNorm = normalizeText(u.turma);
+            matchesTurma = uTurmaNorm.includes(normalizeText(turmaVal));
+        }
+        
+        return matchesSearch && matchesTurma;
+    });
+    
+    if (filteredUsers.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="13" style="text-align:center; color:var(--text-muted); padding:20px;">Nenhum aluno encontrado com os filtros selecionados.</td></tr>';
+        return;
+    }
+    
+    let rowsHtml = '';
+    filteredUsers.forEach(u => {
+        let cellsHtml = `
+            <td style="padding: 12px 14px; text-align: left; vertical-align: middle;">
+                <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">${u.nome}</div>
+                <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Turma: ${u.turma || "Não informada"}</div>
+            </td>
+        `;
+        
+        meses.forEach(m => {
+            const payInfo = u.payments ? u.payments[m] : null;
+            let symbol = "❌";
+            let color = "#ef4444";
+            let link = "";
+            let obsAluno = "";
+            
+            if (payInfo) {
+                link = payInfo.link || "";
+                obsAluno = payInfo.obsAluno || "";
+                if (payInfo.status === "Aprovado" || payInfo.status === "Pago") {
+                    symbol = "✅";
+                    color = "#10b981";
+                } else if (payInfo.status === "Pendente") {
+                    symbol = "⏳";
+                    color = "#f59e0b";
+                }
+            }
+            
+            cellsHtml += `
+                <td class="finance-cell" data-email="${u.email}" data-nome="${u.nome}" data-month="${m}" data-link="${link}" data-obs="${encodeURIComponent(obsAluno)}" style="text-align: center; vertical-align: middle; padding: 12px 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                    <span style="font-size: 1.15rem; color: ${color}; filter: drop-shadow(0 0 4px ${color}30);">${symbol}</span>
+                </td>
+            `;
+        });
+        
+        rowsHtml += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">${cellsHtml}</tr>`;
+    });
+    tableBody.innerHTML = rowsHtml;
+}
+
+function abrirModalVerificacao(email, nome, mes, link, obs) {
+    window.currentFVEmail = email;
+    window.currentFVName = nome;
+    window.currentFVMonth = mes;
+    
+    document.getElementById('fv-student-name').innerText = nome;
+    document.getElementById('fv-student-email').innerText = email;
+    document.getElementById('fv-month-ref').innerText = mes;
+    
+    const linkContainer = document.getElementById('fv-receipt-link-container');
+    const linkEl = document.getElementById('fv-receipt-link');
+    if (link) {
+        linkContainer.style.display = 'block';
+        linkEl.href = link;
+    } else {
+        linkContainer.style.display = 'none';
+    }
+    
+    const obsContainer = document.getElementById('fv-obs-aluno-container');
+    const obsEl = document.getElementById('fv-obs-aluno');
+    if (obs && obs.trim() !== "") {
+        obsContainer.style.display = 'block';
+        obsEl.innerText = obs;
+    } else {
+        obsContainer.style.display = 'none';
+    }
+    
+    document.getElementById('fv-obs-admin').value = '';
+    document.getElementById('finance-verification-feedback').innerHTML = '';
+    
+    openModalById('finance-verification-modal');
+}
+
+async function submeterValidacao(status) {
+    const obs = document.getElementById('fv-obs-admin').value.trim();
+    const feedback = document.getElementById('finance-verification-feedback');
+    
+    if (status === "Rejeitado" && !obs) {
+        feedback.innerHTML = '<span style="color:var(--danger)">Por favor, justifique o motivo da recusa.</span>';
+        return;
+    }
+    
+    const btnId = status === "Aprovado" ? "fv-btn-approve" : "fv-btn-reject";
+    const btn = document.getElementById(btnId);
+    const originalText = btn.innerHTML;
+    btn.innerHTML = 'Enviando...';
+    btn.disabled = true;
+    
+    try {
+        const json = await apiFetch('verifyPayment', {
+            method: 'POST',
+            data: {
+                adminEmail: window.currentUserEmail,
+                studentEmail: window.currentFVEmail,
+                mes: window.currentFVMonth,
+                ano: new Date().getFullYear(),
+                status: status,
+                obs: obs
+            }
+        });
+        if (json.status === "success") {
+            feedback.innerHTML = `<span style="color:var(--success)">Comprovante ${status === "Aprovado" ? "Aprovado" : "Recusado"} com sucesso!</span>`;
+            setTimeout(() => {
+                closeModalById('finance-verification-modal');
+                carregarFinanceiro();
+            }, 2000);
+        } else {
+            feedback.innerHTML = `<span style="color:var(--danger)">Erro: ${json.message}</span>`;
+        }
+    } catch (err) {
+        feedback.innerHTML = '<span style="color:var(--danger)">Erro de conexão com o servidor.</span>';
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function submeterAjusteManual(status) {
+    const feedback = document.getElementById('finance-verification-feedback');
+    const btnId = status === "Pago" ? "fv-btn-manual-pay" : "fv-btn-manual-unpay";
+    const btn = document.getElementById(btnId);
+    const originalText = btn.innerHTML;
+    btn.innerHTML = 'Enviando...';
+    btn.disabled = true;
+    
+    try {
+        const json = await apiFetch('setPaymentStatusManual', {
+            method: 'POST',
+            data: {
+                adminEmail: window.currentUserEmail,
+                studentEmail: window.currentFVEmail,
+                nome: window.currentFVName,
+                mes: window.currentFVMonth,
+                ano: new Date().getFullYear(),
+                status: status
+            }
+        });
+        if (json.status === "success") {
+            feedback.innerHTML = '<span style="color:var(--success)">Ajuste manual salvo com sucesso!</span>';
+            setTimeout(() => {
+                closeModalById('finance-verification-modal');
+                carregarFinanceiro();
+            }, 2000);
+        } else {
+            feedback.innerHTML = `<span style="color:var(--danger)">Erro: ${json.message}</span>`;
+        }
+    } catch (err) {
+        feedback.innerHTML = '<span style="color:var(--danger)">Erro de conexão com o servidor.</span>';
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+function showFinanceError(msg) {
+    const pendingContainer = document.getElementById('finance-pending-container');
+    const tableBody = document.getElementById('finance-table-body');
+    if (pendingContainer) pendingContainer.innerHTML = `<span style="color:#ef4444">${msg}</span>`;
+    if (tableBody) tableBody.innerHTML = `<tr><td colspan="13" style="text-align:center; color:#ef4444;">${msg}</td></tr>`;
+}
+

@@ -1,3 +1,5 @@
+import { API_URL } from './config.js';
+
 /**
  * Utilitários compartilhados do Sistema TUIG
  */
@@ -146,24 +148,59 @@ export function renderGenericHistory(config) {
     });
     listDiv.innerHTML = html;
     
-    // Bind buttons
-    setTimeout(() => {
-        document.querySelectorAll('.btn-justificar-hist').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const dateStr = e.currentTarget.getAttribute('data-date');
-                window.currentJustificationDate = dateStr;
-                const feedback = document.getElementById('justification-feedback');
-                if(feedback) feedback.innerHTML = '';
-                const txt = document.getElementById('justification-text');
-                if(txt) txt.value = '';
-                
-                // Modals transitions
-                const histModal = document.getElementById('history-modal');
-                if(histModal) histModal.style.display = 'none';
-                
-                const justifModal = document.getElementById('justification-modal');
-                if(justifModal) justifModal.style.display = 'block';
-            });
+    // Bind buttons via Event Delegation (only once on the listDiv container)
+    if (!listDiv.dataset.hasListener) {
+        listDiv.dataset.hasListener = "true";
+        listDiv.addEventListener('click', (e) => {
+            const btn = e.target.closest('.btn-justificar-hist');
+            if (!btn) return;
+            
+            const dateStr = btn.getAttribute('data-date');
+            window.currentJustificationDate = dateStr;
+            const feedback = document.getElementById('justification-feedback');
+            if(feedback) feedback.innerHTML = '';
+            const txt = document.getElementById('justification-text');
+            if(txt) txt.value = '';
+            
+            // Modals transitions
+            const histModal = document.getElementById('history-modal');
+            if(histModal) histModal.style.display = 'none';
+            
+            const justifModal = document.getElementById('justification-modal');
+            if(justifModal) justifModal.style.display = 'block';
         });
-    }, 100);
+    }
+}
+
+/**
+ * Centraliza e trata as requisições AJAX para o backend do Apps Script
+ */
+export async function apiFetch(action, options = {}) {
+    const method = options.method || 'GET';
+    const headers = options.headers || {};
+    let url = API_URL;
+    let body = null;
+
+    if (method === 'GET') {
+        const params = new URLSearchParams({ action, ...options.params });
+        url += `?${params.toString()}`;
+    } else {
+        body = JSON.stringify({ action, data: options.data });
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(url, {
+        method,
+        headers,
+        body,
+        redirect: 'follow'
+    });
+
+    const text = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        console.error("Erro ao analisar resposta da API:", text);
+        throw new Error("Resposta do servidor não pôde ser lida.");
+    }
 }

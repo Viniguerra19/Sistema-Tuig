@@ -9,18 +9,14 @@ const NOME_ABA_RITUAIS = "Rituais";
 const NOME_ABA_PRESENCAS = "Presenças";
 const NOME_ABA_AGENDA = "Agenda";
 const NOME_ABA_JUSTIFICATIVAS = "Justificativas";
+const NOME_ABA_MENSALIDADES = "Mensalidades";
 
 // Configurações do Terreiro
 const TERREIRO_LAT = -23.48319550467122;
 const TERREIRO_LON = -46.58630431299817;
 const RAIO_TOLERANCIA_METROS = 25;
 
-// Cabeçalhos CORS para permitir acesso de qualquer domínio (PWA na Hostinger)
-const HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type"
-};
+// Configurações CORS tratadas automaticamente pelo Google Apps Script em Web Apps.
 
 /**
  * Função principal para servir a API REST (CORS Preflight)
@@ -48,6 +44,10 @@ function doGet(e) {
          return handleGetDashboardStats();
       case 'getBulkPresenceList':
          return handleGetBulkPresenceList(e.parameter.date, e.parameter.turma);
+      case 'getRitualsReport':
+         return handleGetRitualsReport(e.parameter.email);
+      case 'getFinancialReport':
+         return handleGetFinancialReport(e.parameter.email);
       default:
         return createJsonResponse({ status: "error", message: "Ação não especificada ou inválida." }, 400);
     }
@@ -82,6 +82,12 @@ function doPost(e) {
         return handleSendJustification(payload.data);
       case 'saveBulkPresence':
         return handleSaveBulkPresence(payload.data);
+      case 'uploadReceipt':
+        return handleUploadReceipt(payload.data);
+      case 'verifyPayment':
+        return handleVerifyPayment(payload.data);
+      case 'setPaymentStatusManual':
+        return handleSetPaymentStatusManual(payload.data);
       default:
         return createJsonResponse({ status: "error", message: "Ação POST inválida." }, 400);
     }
@@ -247,11 +253,7 @@ function handleSaveBulkPresence(data) {
        
        const emailsPresentes = new Set();
        for (let i = 1; i < presencesData.length; i++) {
-           const pDate = new Date(presencesData[i][0]);
-           let adjustedPDate = new Date(pDate.getTime());
-           if (adjustedPDate.getHours() < 2) {
-               adjustedPDate.setHours(adjustedPDate.getHours() - 3);
-           }
+           const adjustedPDate = getAdjustedDate(presencesData[i][0]);
            if (adjustedPDate.toLocaleDateString("pt-BR") === targetDateStr) {
                emailsPresentes.add(presencesData[i][1].toString().toLowerCase().trim());
            }
@@ -320,6 +322,27 @@ function getUserData(email) {
   }
   
   if (!user) return null;
+  
+  const mensalidadesSheet = ss.getSheetByName(NOME_ABA_MENSALIDADES);
+  let userPayments = {};
+  if (mensalidadesSheet) {
+    const payData = mensalidadesSheet.getDataRange().getValues();
+    const currentYear = new Date().getFullYear();
+    const searchEmail = email.toLowerCase().trim();
+    for (let i = 1; i < payData.length; i++) {
+      const pEmail = payData[i][1].toString().toLowerCase().trim();
+      const pYear = parseInt(payData[i][4]);
+      if (pEmail === searchEmail && pYear === currentYear) {
+        const pMonth = payData[i][3].toString();
+        userPayments[pMonth] = {
+          status: payData[i][7], // "Pendente", "Aprovado", "Rejeitado", "Pago"
+          link: payData[i][5],
+          obsAluno: payData[i][8] || "",
+          obsAdmin: payData[i][9] || ""
+        };
+      }
+    }
+  }
   
   const hojeVal = new Date();
   const hoje = hojeVal.getTime();
@@ -458,14 +481,8 @@ function getUserData(email) {
         
         const estevePresente = presencesData.some(p => {
             const pEmail = p[1].toString().toLowerCase().trim();
-            const pDate = new Date(p[0]);
-            
-            // Ajuste para madrugadas: Se marcou presença entre 00:00 e 01:59 da manhã (ex: de Sábado),
-            // a presença pertence ao evento da noite anterior (ex: Sexta-feira).
-            let adjustedPDate = new Date(pDate.getTime());
-            if (adjustedPDate.getHours() < 2) {
-                adjustedPDate.setHours(adjustedPDate.getHours() - 3); 
-            }
+            const pDate = p[0];
+            const adjustedPDate = getAdjustedDate(pDate);
             
             if (pEmail === searchEmail && adjustedPDate.toLocaleDateString("pt-BR") === evtDateString) {
                 return true;
@@ -529,27 +546,18 @@ function getUserData(email) {
     frequencyStats.percentage = frequencyStats.total > 0 ? Math.round((frequencyStats.present / frequencyStats.total) * 100) : 0;
   }
   
-  let presenceToday = false;
+  const presenceToday = false;
   const presenceSheet = ss.getSheetByName(NOME_ABA_PRESENCAS);
   if (presenceSheet) {
     const presencesData = presenceSheet.getDataRange().getValues();
     const hojeString = new Date().toLocaleDateString("pt-BR");
     
     // Para a madrugada (00:00 - 01:59), o "hoje" na verdade se refere ao dia anterior
-    const hojeAjustado = new Date(hojeVal.getTime());
-    if (hojeAjustado.getHours() < 2) {
-        hojeAjustado.setHours(hojeAjustado.getHours() - 3);
-    }
+    const hojeAjustado = getAdjustedDate(hojeVal);
     const hojeAjustadoString = hojeAjustado.toLocaleDateString("pt-BR");
     
     for (let i = 1; i < presencesData.length; i++) {
-        const pDate = new Date(presencesData[i][0]);
-        
-        // Ajusta a data de presença se foi marcada na madrugada
-        let adjustedPDate = new Date(pDate.getTime());
-        if (adjustedPDate.getHours() < 2) {
-            adjustedPDate.setHours(adjustedPDate.getHours() - 3);
-        }
+        const adjustedPDate = getAdjustedDate(presencesData[i][0]);
         const pDateString = adjustedPDate.toLocaleDateString("pt-BR");
         const pEmail = presencesData[i][1].toString().toLowerCase().trim();
         
@@ -568,7 +576,8 @@ function getUserData(email) {
     tempoParaProximo: tempoParaProximo,
     presenceToday: presenceToday,
     canMarkPresence: canMarkPresence,
-    blockReason: blockReason
+    blockReason: blockReason,
+    payments: userPayments
   };
 }
 
@@ -802,11 +811,7 @@ function getDashboardStats() {
     const presencesData = presenceSheet.getDataRange().getValues();
     
     for (let i = 1; i < presencesData.length; i++) {
-      const pDate = new Date(presencesData[i][0]);
-      let adjustedPDate = new Date(pDate.getTime());
-      if (adjustedPDate.getHours() < 2) {
-          adjustedPDate.setHours(adjustedPDate.getHours() - 3); 
-      }
+      const adjustedPDate = getAdjustedDate(presencesData[i][0]);
       const pDateString = adjustedPDate.toLocaleDateString("pt-BR");
       const pEmail = presencesData[i][1].toString().toLowerCase().trim();
       
@@ -961,4 +966,417 @@ function getDashboardStats() {
         maisDeTresFaltas: arrMaisDeTresFaltas
     }
   };
+}
+
+function handleGetRitualsReport(requesterEmail) {
+  if (!requesterEmail) {
+    return createJsonResponse({ status: "error", message: "Email do solicitante não fornecido." }, 400);
+  }
+  
+  const role = getUserRole(requesterEmail);
+  const emailClean = requesterEmail.toLowerCase().trim();
+  const isAllowedSpecial = emailClean === "andreiaandy07@gmail.com" || emailClean === "albertofit7@gmail.com";
+  
+  if (role !== 'master_admin' && !isAllowedSpecial) {
+    return createJsonResponse({ status: "error", message: "Acesso negado. Apenas master_admin ou administradores autorizados podem acessar relatórios de rituais." }, 403);
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
+    const ritualSheet = ss.getSheetByName(NOME_ABA_RITUAIS);
+    
+    if (!userSheet) return createJsonResponse({ status: "error", message: "Aba de usuários não encontrada." });
+    if (!ritualSheet) return createJsonResponse({ status: "error", message: "Aba de rituais não encontrada." });
+    
+    const userData = userSheet.getDataRange().getValues();
+    const ritualsData = ritualSheet.getDataRange().getValues();
+    
+    // Mapeia emails para seus rituais
+    const userRitualsMap = {};
+    for (let i = 1; i < ritualsData.length; i++) {
+      const email = ritualsData[i][0].toString().toLowerCase().trim();
+      if (!email) continue;
+      const ritualName = ritualsData[i][1].toString().trim();
+      const ritualDate = ritualsData[i][2];
+      const ritualNotes = ritualsData[i][3] || "";
+      
+      let dateStr = "";
+      if (ritualDate instanceof Date) {
+        dateStr = ritualDate.toISOString();
+      } else if (ritualDate) {
+        let parsedDate = new Date(ritualDate);
+        if (isNaN(parsedDate.getTime())) {
+          const partes = ritualDate.toString().split('/');
+          if (partes.length === 3) {
+            parsedDate = new Date(partes[2], partes[1] - 1, partes[0]);
+          }
+        }
+        dateStr = isNaN(parsedDate.getTime()) ? ritualDate.toString() : parsedDate.toISOString();
+      }
+      
+      if (!userRitualsMap[email]) {
+        userRitualsMap[email] = [];
+      }
+      userRitualsMap[email].push({
+        nome: ritualName,
+        data: dateStr,
+        notas: ritualNotes
+      });
+    }
+    
+    const reportData = [];
+    for (let i = 1; i < userData.length; i++) {
+      const email = userData[i][0].toString().toLowerCase().trim();
+      if (!email) continue;
+      const nome = userData[i][1].toString().trim();
+      const turma = userData[i][5] ? userData[i][5].toString().trim() : "";
+      const userRole = userData[i][2] ? userData[i][2].toString().trim() : "user";
+      
+      reportData.push({
+        email: userData[i][0].toString().trim(),
+        nome: nome,
+        turma: turma,
+        role: userRole,
+        rituals: userRitualsMap[email] || []
+      });
+    }
+    
+    const uniqueRituals = [];
+    const seenRituals = new Set();
+    for (let i = 1; i < ritualsData.length; i++) {
+      const rName = ritualsData[i][1].toString().trim();
+      if (rName && !seenRituals.has(rName)) {
+        seenRituals.add(rName);
+        uniqueRituals.push(rName);
+      }
+    }
+    uniqueRituals.sort();
+    
+    return createJsonResponse({
+      status: "success",
+      data: {
+        users: reportData,
+        uniqueRituals: uniqueRituals
+      }
+    });
+  } catch (error) {
+    return createJsonResponse({ status: "error", message: "Erro ao gerar relatório: " + error.toString() }, 500);
+  }
+}
+
+// ==========================================
+// FUNÇÕES DE CONTROLE FINANCEIRO (MENSALIDADES)
+// ==========================================
+
+function getMensalidadesSheet(ss) {
+  let sheet = ss.getSheetByName(NOME_ABA_MENSALIDADES);
+  if (!sheet) {
+    sheet = ss.insertSheet(NOME_ABA_MENSALIDADES);
+    sheet.appendRow([
+      "Timestamp", 
+      "Email", 
+      "Nome", 
+      "Mês", 
+      "Ano", 
+      "Comprovante Link", 
+      "Drive File ID", 
+      "Status", 
+      "Observações Aluno", 
+      "Observações Admin", 
+      "Verificado Por", 
+      "Data Verificação"
+    ]);
+    sheet.getRange("A1:L1").setFontWeight("bold");
+  }
+  return sheet;
+}
+
+function findPaymentRowIndex(sheet, email, mes, ano) {
+  const data = sheet.getDataRange().getValues();
+  const searchEmail = email.toLowerCase().trim();
+  const searchMes = mes.toString().trim();
+  const searchAno = ano.toString().trim();
+  
+  for (let i = 1; i < data.length; i++) {
+    const rowEmail = data[i][1].toString().toLowerCase().trim();
+    const rowMes = data[i][3].toString().trim();
+    const rowAno = data[i][4].toString().trim();
+    if (rowEmail === searchEmail && rowMes === searchMes && rowAno === searchAno) {
+      return i + 1; // 1-indexed
+    }
+  }
+  return -1;
+}
+
+function handleUploadReceipt(data) {
+  const { email, nome, mes, ano, fileBase64, fileName, mimeType, obs } = data;
+  
+  if (!email || !mes || !ano || !fileBase64 || !fileName || !mimeType) {
+    return createJsonResponse({ status: "error", message: "Dados incompletos para envio do comprovante." });
+  }
+  
+  try {
+    let base64Part = fileBase64;
+    if (fileBase64.indexOf("base64,") !== -1) {
+      base64Part = fileBase64.split("base64,")[1];
+    }
+    const decoded = Utilities.base64Decode(base64Part);
+    const blob = Utilities.newBlob(decoded, mimeType, fileName);
+    
+    const folderName = "Comprovantes TUIG";
+    const folders = DriveApp.getFoldersByName(folderName);
+    let folder;
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder(folderName);
+    }
+    
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileUrl = file.getUrl();
+    const fileId = file.getId();
+    
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = getMensalidadesSheet(ss);
+    const rowIndex = findPaymentRowIndex(sheet, email, mes, ano);
+    
+    if (rowIndex > 0) {
+      // Deleta o arquivo antigo do Drive para não acumular lixo
+      const oldFileId = sheet.getRange(rowIndex, 7).getValue().toString().trim();
+      deleteFileFromDrive(oldFileId);
+      
+      sheet.getRange(rowIndex, 1).setValue(new Date()); // Update Timestamp
+      sheet.getRange(rowIndex, 3).setValue(nome);       // Garante nome atualizado
+      sheet.getRange(rowIndex, 6).setValue(fileUrl);    // Novo Link
+      sheet.getRange(rowIndex, 7).setValue(fileId);     // Novo File ID
+      sheet.getRange(rowIndex, 8).setValue("Pendente"); // Reseta para Pendente
+      sheet.getRange(rowIndex, 9).setValue(obs || "");  // Observações do Aluno
+      sheet.getRange(rowIndex, 10).setValue("");        // Limpa notas do admin
+      sheet.getRange(rowIndex, 11).setValue("");        // Limpa validador
+      sheet.getRange(rowIndex, 12).setValue("");        // Limpa data de verificação
+    } else {
+      sheet.appendRow([
+        new Date(),
+        email.toLowerCase().trim(),
+        nome,
+        mes,
+        ano,
+        fileUrl,
+        fileId,
+        "Pendente",
+        obs || "",
+        "",
+        "",
+        ""
+      ]);
+    }
+    
+    return createJsonResponse({ status: "success", message: "Comprovante enviado com sucesso!" });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao salvar comprovante: " + err.toString() });
+  }
+}
+
+function handleVerifyPayment(data) {
+  const { adminEmail, studentEmail, mes, ano, status, obs } = data;
+  
+  if (!adminEmail || !studentEmail || !mes || !ano || !status) {
+    return createJsonResponse({ status: "error", message: "Dados incompletos para validação." });
+  }
+  
+  const role = getUserRole(adminEmail);
+  if (role !== "master_admin" && role !== "admin") {
+    return createJsonResponse({ status: "error", message: "Acesso negado. Apenas administradores podem validar comprovantes." }, 403);
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = getMensalidadesSheet(ss);
+    const rowIndex = findPaymentRowIndex(sheet, studentEmail, mes, ano);
+    
+    if (rowIndex === -1) {
+      return createJsonResponse({ status: "error", message: "Registro do comprovante não encontrado." });
+    }
+    
+    sheet.getRange(rowIndex, 8).setValue(status);
+    sheet.getRange(rowIndex, 10).setValue(obs || "");
+    sheet.getRange(rowIndex, 11).setValue(adminEmail);
+    sheet.getRange(rowIndex, 12).setValue(new Date());
+    
+    if (status === "Rejeitado") {
+      // Se rejeitar o comprovante, deleta o arquivo do Drive para evitar arquivos mortos
+      const fileId = sheet.getRange(rowIndex, 7).getValue().toString().trim();
+      deleteFileFromDrive(fileId);
+      
+      // Limpa os campos de comprovante na planilha
+      sheet.getRange(rowIndex, 6).setValue("");
+      sheet.getRange(rowIndex, 7).setValue("");
+    }
+    
+    return createJsonResponse({ status: "success", message: `Pagamento verificado com status: ${status}` });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao salvar verificação: " + err.toString() });
+  }
+}
+
+function handleSetPaymentStatusManual(data) {
+  const { adminEmail, studentEmail, nome, mes, ano, status } = data;
+  
+  if (!adminEmail || !studentEmail || !mes || !ano || !status) {
+    return createJsonResponse({ status: "error", message: "Dados incompletos para ajuste manual." });
+  }
+  
+  const role = getUserRole(adminEmail);
+  if (role !== "master_admin" && role !== "admin") {
+    return createJsonResponse({ status: "error", message: "Acesso negado." }, 403);
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = getMensalidadesSheet(ss);
+    const rowIndex = findPaymentRowIndex(sheet, studentEmail, mes, ano);
+    
+    if (rowIndex > 0) {
+      sheet.getRange(rowIndex, 8).setValue(status);
+      sheet.getRange(rowIndex, 11).setValue(adminEmail);
+      sheet.getRange(rowIndex, 12).setValue(new Date());
+      if (status === "Em Aberto") {
+        // Se retornar para Em Aberto, deleta o arquivo do Drive para evitar arquivos mortos
+        const fileId = sheet.getRange(rowIndex, 7).getValue().toString().trim();
+        deleteFileFromDrive(fileId);
+        
+        sheet.getRange(rowIndex, 6).setValue("");
+        sheet.getRange(rowIndex, 7).setValue("");
+        sheet.getRange(rowIndex, 9).setValue("");
+        sheet.getRange(rowIndex, 10).setValue("");
+      }
+    } else {
+      if (status === "Pago") {
+        sheet.appendRow([
+          new Date(),
+          studentEmail.toLowerCase().trim(),
+          nome,
+          mes,
+          ano,
+          "", // Sem Link do Drive
+          "", // Sem File ID
+          "Pago",
+          "Marcação manual pelo admin", // Obs Aluno
+          "", // Obs Admin
+          adminEmail,
+          new Date()
+        ]);
+      }
+    }
+    
+    return createJsonResponse({ status: "success", message: "Status do pagamento atualizado com sucesso!" });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao salvar ajuste manual: " + err.toString() });
+  }
+}
+
+function handleGetFinancialReport(adminEmail) {
+  if (!adminEmail) {
+    return createJsonResponse({ status: "error", message: "Email do administrador não fornecido." }, 400);
+  }
+  
+  const role = getUserRole(adminEmail);
+  if (role !== "master_admin" && role !== "admin") {
+    return createJsonResponse({ status: "error", message: "Acesso negado." }, 403);
+  }
+  
+  try {
+    const visibleUsers = getAdminData(adminEmail);
+    
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = getMensalidadesSheet(ss);
+    const payData = sheet.getDataRange().getValues();
+    const currentYear = new Date().getFullYear();
+    
+    const paymentsMap = {};
+    const pendingList = [];
+    
+    for (let i = 1; i < payData.length; i++) {
+      const pEmail = payData[i][1].toString().toLowerCase().trim();
+      const pYear = parseInt(payData[i][4]);
+      if (pYear === currentYear) {
+        const pMonth = payData[i][3].toString();
+        const pStatus = payData[i][7];
+        const pLink = payData[i][5];
+        const pObsAluno = payData[i][8] || "";
+        const pObsAdmin = payData[i][9] || "";
+        const pNome = payData[i][2];
+        
+        if (!paymentsMap[pEmail]) {
+          paymentsMap[pEmail] = {};
+        }
+        paymentsMap[pEmail][pMonth] = {
+          status: pStatus,
+          link: pLink,
+          obsAluno: pObsAluno,
+          obsAdmin: pObsAdmin
+        };
+        
+        if (pStatus === "Pendente") {
+          pendingList.push({
+            email: pEmail,
+            nome: pNome,
+            mes: pMonth,
+            ano: pYear,
+            link: pLink,
+            obsAluno: pObsAluno
+          });
+        }
+      }
+    }
+    
+    const reportUsers = visibleUsers.map(u => {
+      const emailLower = u.email.toLowerCase().trim();
+      return {
+        email: u.email,
+        nome: u.nome,
+        turma: u.turma,
+        payments: paymentsMap[emailLower] || {}
+      };
+    });
+    
+    return createJsonResponse({
+      status: "success",
+      data: {
+        users: reportUsers,
+        pending: pendingList
+      }
+    });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao buscar relatório financeiro: " + err.toString() }, 500);
+  }
+}
+
+
+
+/**
+ * Deleta um arquivo do Drive com base no seu ID (move para a lixeira do Drive)
+ */
+function deleteFileFromDrive(fileId) {
+  if (!fileId) return;
+  try {
+    var file = DriveApp.getFileById(fileId);
+    file.setTrashed(true);
+    Logger.log("Arquivo movido para a lixeira: " + fileId);
+  } catch (e) {
+    Logger.log("Erro ao deletar arquivo do Drive: " + e.toString());
+  }
+}
+
+/**
+ * Ajusta fuso horário de datas gravadas na madrugada (entre 00:00 e 01:59) recuando 3 horas
+ */
+function getAdjustedDate(date) {
+  const d = new Date(date);
+  if (!isNaN(d.getTime()) && d.getHours() < 2) {
+    d.setHours(d.getHours() - 3);
+  }
+  return d;
 }
