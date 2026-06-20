@@ -355,10 +355,11 @@ function getUserData(email) {
     const agendaData = agendaSheet.getDataRange().getValues();
     const hojeTime = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
     for (let i = 1; i < agendaData.length; i++) {
-      const evtDate = new Date(agendaData[i][0]);
+      if (agendaData[i].length < 3) continue;
+      const evtDate = new Date(agendaData[i][0]); // Coluna A
       if (isNaN(evtDate.getTime())) continue;
       const evtTime = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate()).getTime();
-      const evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : "";
+      const evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : ""; // Coluna C
       
       if (evtTime === hojeTime && (!evtTurma || evtTurma.includes("geral") || evtTurma.includes("ambos"))) {
         temGiraGeralHoje = true;
@@ -423,13 +424,140 @@ function getUserData(email) {
     };
   }).sort((a, b) => b.timestamp - a.timestamp);
   
-  const INTERVALO_PADRAO_DIAS = 21; 
-  let tempoParaProximo = "Disponível agora";
-  if (userRituals.length > 0) {
-    const ultimoRitual = userRituals[0].timestamp;
-    const proximaData = ultimoRitual + (INTERVALO_PADRAO_DIAS * 24 * 60 * 60 * 1000);
-    const diff = proximaData - hoje;
-    if (diff > 0) tempoParaProximo = "Em " + Math.ceil(diff / (1000 * 60 * 60 * 24)) + " dias";
+  // Regras de negócio para recomendação e elegibilidade de rituais agendados
+  const completedNames = userRituals.map(r => r.nome.toLowerCase().trim());
+  const hasAmaci = completedNames.some(n => n.includes("amaci") || n.includes("amaxi"));
+  const hasBatizado = completedNames.some(n => n.includes("batizado"));
+  const hasDeitada = completedNames.some(n => n.includes("deitada"));
+  const hasEsquerda = completedNames.some(n => n.includes("esquerda"));
+  const hasEntidade = completedNames.some(n => n.includes("entidade"));
+
+  let deitadaDate = null;
+  let esquerdaDate = null;
+
+  userRituals.forEach(r => {
+    const nome = r.nome.toLowerCase().trim();
+    if (nome.includes("deitada")) {
+      deitadaDate = new Date(r.timestamp);
+    }
+    if (nome.includes("esquerda")) {
+      esquerdaDate = new Date(r.timestamp);
+    }
+  });
+
+  const upcomingRituals = [];
+  if (agendaSheet) {
+    const agendaData = agendaSheet.getDataRange().getValues();
+    const hojeTime = new Date(hojeVal.getFullYear(), hojeVal.getMonth(), hojeVal.getDate()).getTime();
+    
+    for (let i = 1; i < agendaData.length; i++) {
+      if (agendaData[i].length <= 4) continue;
+      const evtDate = new Date(agendaData[i][4]); // Coluna E
+      if (isNaN(evtDate.getTime())) continue;
+      const evtTime = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate()).getTime();
+      
+      if (evtTime >= hojeTime) {
+        const evtNome = agendaData[i][5] ? agendaData[i][5].toString().trim() : ""; // Coluna F
+        const evtNomeLower = evtNome.toLowerCase();
+        
+        let type = "";
+        if (evtNomeLower.includes("amaci") || evtNomeLower.includes("amaxi")) type = "amaci";
+        else if (evtNomeLower.includes("batizado")) type = "batizado";
+        else if (evtNomeLower.includes("deitada")) type = "deitada";
+        else if (evtNomeLower.includes("esquerda")) type = "esquerda";
+        else if (evtNomeLower.includes("entidade")) type = "entidade";
+        
+        if (type) {
+          upcomingRituals.push({
+            nome: evtNome,
+            data: evtDate.toISOString(),
+            timestamp: evtTime,
+            type: type
+          });
+        }
+      }
+    }
+  }
+  
+  // Ordena por data mais próxima
+  upcomingRituals.sort((a, b) => a.timestamp - b.timestamp);
+
+  let recommendedRitual = null;
+  for (let i = 0; i < upcomingRituals.length; i++) {
+    const ritual = upcomingRituals[i];
+    
+    let completed = false;
+    if (ritual.type === "amaci" && hasAmaci) completed = true;
+    if (ritual.type === "batizado" && hasBatizado) completed = true;
+    if (ritual.type === "deitada" && hasDeitada) completed = true;
+    if (ritual.type === "esquerda" && hasEsquerda) completed = true;
+    if (ritual.type === "entidade" && hasEntidade) completed = true;
+    
+    if (!completed) {
+      let status = "eligible";
+      let msg = "";
+      
+      if (ritual.type === "deitada") {
+        if (!hasBatizado) {
+          status = "blocked";
+          msg = "Requer Batizado";
+        }
+      } else if (ritual.type === "esquerda") {
+        if (!hasBatizado) {
+          status = "blocked";
+          msg = "Requer Batizado e 1 ano de Deitada";
+        } else if (!hasDeitada) {
+          status = "blocked";
+          msg = "Requer Deitada (há pelo menos 1 ano)";
+        } else {
+          const diffDeitada = hoje - deitadaDate.getTime();
+          const umAno = 365 * 24 * 60 * 60 * 1000;
+          if (diffDeitada < umAno) {
+            status = "blocked";
+            const diasFaltando = Math.ceil((umAno - diffDeitada) / (1000 * 60 * 60 * 24));
+            msg = `Requer 1 ano de Deitada (libera em ${diasFaltando} dias)`;
+          }
+        }
+      } else if (ritual.type === "entidade") {
+        if (!hasBatizado) {
+          status = "blocked";
+          msg = "Requer Batizado";
+        } else if (!hasDeitada) {
+          status = "blocked";
+          msg = "Requer Deitada";
+        } else if (!hasEsquerda) {
+          status = "blocked";
+          msg = "Requer Assentamento de Esquerda (há pelo menos 1 ano)";
+        } else {
+          const diffEsquerda = hoje - esquerdaDate.getTime();
+          const umAno = 365 * 24 * 60 * 60 * 1000;
+          if (diffEsquerda < umAno) {
+            status = "blocked";
+            const diasFaltando = Math.ceil((umAno - diffEsquerda) / (1000 * 60 * 60 * 24));
+            msg = `Requer 1 ano de Assentamento de Esquerda (libera em ${diasFaltando} dias)`;
+          }
+        }
+      }
+      
+      recommendedRitual = {
+        nome: ritual.nome,
+        data: ritual.data,
+        type: ritual.type,
+        status: status,
+        mensagem: msg
+      };
+      break; 
+    }
+  }
+
+  // Fallback legível para tempoParaProximo
+  let tempoParaProximo = "Nenhum ritual agendado";
+  if (recommendedRitual) {
+    const diff = new Date(recommendedRitual.data).getTime() - hoje;
+    const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    const tempoFormatado = dias <= 0 ? "Hoje" : (dias === 1 ? "Amanhã" : "Em " + dias + " dias");
+    tempoParaProximo = recommendedRitual.nome + ": " + (recommendedRitual.status === "eligible" ? tempoFormatado : "Bloqueado");
+    recommendedRitual.tempoFormatado = tempoFormatado;
   }
   
   for (let i = 0; i < userRituals.length; i++) {
@@ -456,9 +584,11 @@ function getUserData(email) {
     
     const eventosPassados = [];
     for (let i = 1; i < agendaData.length; i++) {
-        const evtDate = new Date(agendaData[i][0]);
-        const evtNome = agendaData[i][1];
-        const evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : "ambos";
+        if (agendaData[i].length < 3) continue;
+        const evtDate = new Date(agendaData[i][0]); // Coluna A
+        if (isNaN(evtDate.getTime())) continue;
+        const evtNome = agendaData[i][1] ? agendaData[i][1].toString().trim() : ""; // Coluna B
+        const evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : "ambos"; // Coluna C
         
         const evtTime = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate()).getTime();
         const hojeTime = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
@@ -574,6 +704,7 @@ function getUserData(email) {
     eventHistory: eventHistory,
     frequencyStats: frequencyStats,
     tempoParaProximo: tempoParaProximo,
+    proximoRitual: recommendedRitual,
     presenceToday: presenceToday,
     canMarkPresence: canMarkPresence,
     blockReason: blockReason,
@@ -762,11 +893,13 @@ function getDashboardStats() {
     const hojeTime = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
     
     for (let i = 1; i < agendaData.length; i++) {
-      const evtDate = new Date(agendaData[i][0]);
+      if (agendaData[i].length < 3) continue;
+      const evtDate = new Date(agendaData[i][0]); // Coluna A
+      if (isNaN(evtDate.getTime())) continue;
       const evtTime = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate()).getTime();
       
       if (evtTime <= hojeTime) {
-        let evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : "ambos";
+        let evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : "ambos"; // Coluna C
         let dateString = evtDate.toLocaleDateString("pt-BR");
         
         let expected = 0;

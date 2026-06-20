@@ -36,7 +36,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                 </button>
 
                 <div id="next-ritual-badge" style="background: rgba(124, 58, 237, 0.1); color: #ddd6fe; padding: 16px 20px; border-radius: 16px; font-size: 0.95rem; border: 1px solid rgba(124, 58, 237, 0.2); font-weight: 500; display: flex; flex-direction: column; gap: 4px;">
-                    <span style="display: block; font-size: 0.7rem; color: #a78bfa; letter-spacing: 0.1em; font-weight: 700; text-transform: uppercase;">PRÓXIMO RITUAL EM</span>
+                    <span id="next-ritual-label" style="display: block; font-size: 0.7rem; color: #a78bfa; letter-spacing: 0.1em; font-weight: 700; text-transform: uppercase;">PRÓXIMO RITUAL EM</span>
                     <span id="next-ritual-timer" style="color: #fff; font-weight: 700; font-size: 1.1rem;">Calculando...</span>
                 </div>
             </div>
@@ -363,7 +363,38 @@ function showUserData(data) {
 
     document.getElementById('user-name').innerText = data.user.nome;
     document.getElementById('user-email-display').innerText = data.user.email;
-    document.getElementById('next-ritual-timer').innerText = data.tempoParaProximo;
+
+    const ritualBadge = document.getElementById('next-ritual-badge');
+    const ritualLabel = document.getElementById('next-ritual-label');
+    const ritualTimer = document.getElementById('next-ritual-timer');
+
+    if (ritualBadge && ritualLabel && ritualTimer) {
+        const pr = data.proximoRitual;
+        if (pr) {
+            if (pr.status === 'eligible') {
+                ritualBadge.style.background = 'rgba(16, 185, 129, 0.08)';
+                ritualBadge.style.border = '1px solid rgba(16, 185, 129, 0.2)';
+                ritualLabel.style.color = '#34d399';
+                ritualLabel.innerText = `PRÓXIMO RITUAL: ${pr.nome.toUpperCase()}`;
+                ritualTimer.innerText = pr.tempoFormatado || 'Hoje';
+                ritualTimer.style.color = '#ffffff';
+            } else {
+                ritualBadge.style.background = 'rgba(239, 68, 68, 0.08)';
+                ritualBadge.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+                ritualLabel.style.color = '#f87171';
+                ritualLabel.innerText = `RECOMENDADO: ${pr.nome.toUpperCase()}`;
+                ritualTimer.innerText = `🚫 ${pr.mensagem}`;
+                ritualTimer.style.color = '#fca5a5';
+            }
+        } else {
+            ritualBadge.style.background = 'rgba(255, 255, 255, 0.03)';
+            ritualBadge.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+            ritualLabel.style.color = '#a1a1aa';
+            ritualLabel.innerText = 'RITUAL RECOMENDADO';
+            ritualTimer.innerText = 'Nenhum ritual agendado';
+            ritualTimer.style.color = '#ffffff';
+        }
+    }
 
     const coursesDiv = document.getElementById('user-courses');
     if (coursesDiv && data.user.cursos) {
