@@ -209,6 +209,11 @@ function handleGetBulkPresenceList(dateStr, turmaFilter) {
    for (let i = 1; i < userData.length; i++) {
        const uEmail = userData[i][0].toString().toLowerCase().trim();
        if (!uEmail) continue;
+
+       // Ignora usuários inativos (Coluna I - índice 8)
+       const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
+       if (status === "inativo") continue;
+       
        const uNome = userData[i][1];
        const uTurma = userData[i][5] ? userData[i][5].toString() : "";
        const uTurmaNorm = uTurma.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -293,6 +298,10 @@ function getUserRole(email) {
   
   for (let i = 1; i < data.length; i++) {
     if (data[i][0].toString().toLowerCase().trim() === searchEmail) {
+      // Verifica se o usuário está inativo (Coluna I - índice 8)
+      const status = data[i][8] ? data[i][8].toString().toLowerCase().trim() : "";
+      if (status === "inativo") return null;
+      
       return data[i][2]; // Coluna C (Permissão)
     }
   }
@@ -311,6 +320,10 @@ function getUserData(email) {
   let user = null;
   for (let i = 1; i < userData.length; i++) {
     if (userData[i][0].toString().toLowerCase().trim() === searchEmail) {
+      // Verifica se o usuário está inativo (Coluna I - índice 8)
+      const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
+      if (status === "inativo") break;
+      
       user = {
         email: userData[i][0],
         nome: userData[i][1],
@@ -737,6 +750,12 @@ function getAdminData(adminEmail) {
   
   for (let i = 1; i < userData.length; i++) {
     const userEmailInSheet = userData[i][0].toString().toLowerCase().trim();
+    if (!userEmailInSheet) continue;
+
+    // Ignora usuários inativos (Coluna I - índice 8)
+    const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
+    if (status === "inativo") continue;
+
     const userCursosRaw = userData[i][3] ? userData[i][3].toString().split(",").map(c => c.trim()) : [];
     const userCursosLower = userCursosRaw.map(c => c.toLowerCase().trim());
     
@@ -780,11 +799,21 @@ function registerPresence(presenceData) {
   
   const userData = ss.getSheetByName(NOME_ABA_USUARIOS).getDataRange().getValues();
   let studentName = "Não cadastrado";
+  let isActive = true;
   for(let i=1; i < userData.length; i++) {
     if(userData[i][0].toString().toLowerCase().trim() === studentEmail.toLowerCase().trim()) {
-      studentName = userData[i][1];
+      const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
+      if (status === "inativo") {
+        isActive = false;
+      } else {
+        studentName = userData[i][1];
+      }
       break;
     }
+  }
+
+  if (!isActive || studentName === "Não cadastrado") {
+    return { status: "error", message: "Este aluno está inativo ou não cadastrado no sistema." };
   }
 
   const presencesData = presenceSheet.getDataRange().getValues();
@@ -868,6 +897,10 @@ function getDashboardStats() {
   for (let i = 1; i < userData.length; i++) {
     const email = userData[i][0].toString().toLowerCase().trim();
     if (!email) continue;
+    
+    // Ignora usuários inativos (Coluna I - índice 8)
+    const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
+    if (status === "inativo") continue;
     
     statsTurma.total++;
     let turmaRaw = userData[i][5] ? userData[i][5].toString().toLowerCase().trim() : "";
@@ -1162,6 +1195,11 @@ function handleGetRitualsReport(requesterEmail) {
     for (let i = 1; i < userData.length; i++) {
       const email = userData[i][0].toString().toLowerCase().trim();
       if (!email) continue;
+
+      // Ignora usuários inativos (Coluna I - índice 8)
+      const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
+      if (status === "inativo") continue;
+
       const nome = userData[i][1].toString().trim();
       const turma = userData[i][5] ? userData[i][5].toString().trim() : "";
       const userRole = userData[i][2] ? userData[i][2].toString().trim() : "user";
