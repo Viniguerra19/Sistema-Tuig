@@ -186,7 +186,9 @@ export async function apiFetch(action, options = {}) {
         url += `?${params.toString()}`;
     } else {
         body = JSON.stringify({ action, data: options.data });
-        headers['Content-Type'] = 'application/json';
+        // Alterado de 'application/json' para 'text/plain' para evitar a requisição preflight CORS (OPTIONS),
+        // já que o Google Apps Script não lida bem com OPTIONS, mas lê o corpo em texto plano perfeitamente.
+        headers['Content-Type'] = 'text/plain';
     }
 
     const response = await fetch(url, {
