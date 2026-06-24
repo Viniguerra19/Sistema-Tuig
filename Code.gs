@@ -1297,14 +1297,24 @@ function handleUploadReceipt(data) {
     
     const folderName = "Comprovantes TUIG";
     const folders = DriveApp.getFoldersByName(folderName);
-    let folder;
+    let mainFolder;
     if (folders.hasNext()) {
-      folder = folders.next();
+      mainFolder = folders.next();
     } else {
-      folder = DriveApp.createFolder(folderName);
+      mainFolder = DriveApp.createFolder(folderName);
     }
     
-    const file = folder.createFile(blob);
+    // Localiza ou cria a pasta com o nome do aluno dentro de "Comprovantes TUIG"
+    const studentFolderName = nome.trim();
+    const studentFolders = mainFolder.getFoldersByName(studentFolderName);
+    let targetFolder;
+    if (studentFolders.hasNext()) {
+      targetFolder = studentFolders.next();
+    } else {
+      targetFolder = mainFolder.createFolder(studentFolderName);
+    }
+    
+    const file = targetFolder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const fileUrl = file.getUrl();
     const fileId = file.getId();
@@ -1551,3 +1561,4 @@ function getAdjustedDate(date) {
   }
   return d;
 }
+

@@ -353,6 +353,16 @@ export async function renderAdminDashboard(email) {
         document.body.appendChild(modalsContainer);
     }
 
+    // Remove existing modals if they exist to avoid event listener accumulation on DOM elements that persist
+    const oldDetailsModal = document.getElementById('user-details-modal');
+    if (oldDetailsModal) oldDetailsModal.remove();
+
+    const oldVerificationModal = document.getElementById('finance-verification-modal');
+    if (oldVerificationModal) oldVerificationModal.remove();
+
+    const oldBulkModal = document.getElementById('bulk-presence-modal');
+    if (oldBulkModal) oldBulkModal.remove();
+
     if (!document.getElementById('user-details-modal')) {
         modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="user-details-modal" class="modal">

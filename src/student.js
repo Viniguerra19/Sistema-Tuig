@@ -79,6 +79,16 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
         document.body.appendChild(modalsContainer);
     }
 
+    // Remove existing modals if they exist to avoid event listener accumulation on DOM elements that persist
+    const oldHistoryModal = document.getElementById('history-modal');
+    if (oldHistoryModal) oldHistoryModal.remove();
+
+    const oldJustificationModal = document.getElementById('justification-modal');
+    if (oldJustificationModal) oldJustificationModal.remove();
+
+    const oldUploadReceiptModal = document.getElementById('upload-receipt-modal');
+    if (oldUploadReceiptModal) oldUploadReceiptModal.remove();
+
     if (!document.getElementById('history-modal')) {
         modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="history-modal" class="modal">
