@@ -4,12 +4,15 @@
  */
 
 const SPREADSHEET_ID = "1N8gsG2A99KI1f-DuoPYffTrvIqHzjDQb-5_voIu4QWc";
+const SPREADSHEET_BIBLIOTECA_ID = "1bhpSOA8tI1qMP4hboQDjHPT5n9hGzt9l6BrWXU0ERZE";
 const NOME_ABA_USUARIOS = "Usuários";
 const NOME_ABA_RITUAIS = "Rituais";
 const NOME_ABA_PRESENCAS = "Presenças";
 const NOME_ABA_AGENDA = "Agenda";
 const NOME_ABA_JUSTIFICATIVAS = "Justificativas";
 const NOME_ABA_MENSALIDADES = "Mensalidades";
+const NOME_ABA_LIVROS = "Livros";
+const NOME_ABA_EMPRESTIMOS = "Empréstimos";
 
 // Configurações do Terreiro
 const TERREIRO_LAT = -23.48319550467122;
@@ -48,6 +51,8 @@ function doGet(e) {
          return handleGetRitualsReport(e.parameter.email);
       case 'getFinancialReport':
          return handleGetFinancialReport(e.parameter.email);
+      case 'getBooksData':
+         return handleGetBooksData(e.parameter.email);
       default:
         return createJsonResponse({ status: "error", message: "Ação não especificada ou inválida." }, 400);
     }
@@ -88,6 +93,18 @@ function doPost(e) {
         return handleVerifyPayment(payload.data);
       case 'setPaymentStatusManual':
         return handleSetPaymentStatusManual(payload.data);
+      case 'saveBook':
+        return handleSaveBook(payload.data);
+      case 'deleteBook':
+        return handleDeleteBook(payload.data);
+      case 'requestBookLoan':
+        return handleRequestBookLoan(payload.data);
+      case 'cancelBookLoanRequest':
+        return handleCancelBookLoanRequest(payload.data);
+      case 'confirmBookPickup':
+        return handleConfirmBookPickup(payload.data);
+      case 'confirmBookReturn':
+        return handleConfirmBookReturn(payload.data);
       default:
         return createJsonResponse({ status: "error", message: "Ação POST inválida." }, 400);
     }
@@ -1560,5 +1577,602 @@ function getAdjustedDate(date) {
     d.setHours(d.getHours() - 3);
   }
   return d;
+}
+
+// ==========================================
+// SISTEMA DE BIBLIOTECA E EMPRÉSTIMOS
+// ==========================================
+
+function checkAndInitLibrarySheets(ss) {
+  let livrosSheet = ss.getSheetByName(NOME_ABA_LIVROS);
+  if (!livrosSheet) {
+    livrosSheet = ss.insertSheet(NOME_ABA_LIVROS);
+    livrosSheet.appendRow(["ID", "Título", "Autor", "Sinopse", "CapaURL", "Localização", "QtdTotal", "QtdDisponivel", "Ativo", "Categoria"]);
+    livrosSheet.getRange("A1:J1").setFontWeight("bold");
+  } else {
+    // Garante que o cabeçalho 'Categoria' existe na coluna J se a planilha já foi criada antes
+    const headers = livrosSheet.getRange("A1:J1").getValues()[0];
+    if (headers[8] === "Ativo" && (!headers[9] || headers[9] !== "Categoria")) {
+      livrosSheet.getRange("J1").setValue("Categoria").setFontWeight("bold");
+    }
+  }
+  
+  let emprestimosSheet = ss.getSheetByName(NOME_ABA_EMPRESTIMOS);
+  if (!emprestimosSheet) {
+    emprestimosSheet = ss.insertSheet(NOME_ABA_EMPRESTIMOS);
+    emprestimosSheet.appendRow(["ID", "LivroID", "TítuloLivro", "Email", "Nome", "DataSolicitacao", "DataRetirada", "DataDevolucaoPrevista", "DataDevolucaoReal", "Status"]);
+    emprestimosSheet.getRange("A1:J1").setFontWeight("bold");
+  }
+  
+  return { livrosSheet, emprestimosSheet };
+}
+
+function handleGetBooksData(email) {
+  if (!email) return createJsonResponse({ status: "error", message: "Email não fornecido." });
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet, emprestimosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    const loansRaw = emprestimosSheet.getDataRange().getValues();
+    
+    const role = getUserRole(email);
+    const isAdmin = role === "master_admin" || role === "admin" || email.toLowerCase().trim() === "andreiaandy07@gmail.com" || email.toLowerCase().trim() === "albertofit7@gmail.com";
+    
+    // Processa Livros
+    let books = [];
+    for (let i = 1; i < booksRaw.length; i++) {
+      const activeVal = booksRaw[i][8];
+      const isAtivo = activeVal === true || activeVal === "TRUE" || activeVal === "true" || activeVal === "";
+      if (!isAtivo) continue;
+      
+      books.push({
+        id: booksRaw[i][0].toString(),
+        titulo: booksRaw[i][1].toString(),
+        autor: booksRaw[i][2].toString(),
+        sinopse: booksRaw[i][3].toString(),
+        capaUrl: booksRaw[i][4].toString(),
+        localizacao: booksRaw[i][5].toString(),
+        qtdTotal: parseInt(booksRaw[i][6]) || 0,
+        qtdDisponivel: parseInt(booksRaw[i][7]) || 0,
+        categoria: booksRaw[i][9] ? booksRaw[i][9].toString() : "Geral"
+      });
+    }
+    
+    // Processa Empréstimos
+    let loans = [];
+    const searchEmail = email.toLowerCase().trim();
+    for (let i = 1; i < loansRaw.length; i++) {
+      const loanEmail = loansRaw[i][3].toString().toLowerCase().trim();
+      
+      if (!isAdmin && loanEmail !== searchEmail) continue;
+      
+      const status = loansRaw[i][9].toString();
+      let displayStatus = status;
+      
+      if (status === "Ativo" && loansRaw[i][7]) {
+        const expectedDate = new Date(loansRaw[i][7]);
+        if (new Date() > expectedDate) {
+          displayStatus = "Atrasado";
+        }
+      }
+      
+      loans.push({
+        id: loansRaw[i][0].toString(),
+        livroId: loansRaw[i][1].toString(),
+        tituloLivro: loansRaw[i][2].toString(),
+        email: loansRaw[i][3].toString(),
+        nome: loansRaw[i][4].toString(),
+        dataSolicitacao: loansRaw[i][5] ? new Date(loansRaw[i][5]).toISOString() : null,
+        dataRetirada: loansRaw[i][6] ? new Date(loansRaw[i][6]).toISOString() : null,
+        dataDevolucaoPrevista: loansRaw[i][7] ? new Date(loansRaw[i][7]).toISOString() : null,
+        dataDevolucaoReal: loansRaw[i][8] ? new Date(loansRaw[i][8]).toISOString() : null,
+        status: displayStatus
+      });
+    }
+    
+    return createJsonResponse({
+      status: "success",
+      books: books,
+      loans: loans,
+      isAdmin: isAdmin
+    });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao buscar dados da biblioteca: " + err.toString() });
+  }
+}
+
+function handleSaveBook(bookData) {
+  if (!bookData || !bookData.titulo || !bookData.adminEmail) {
+    return createJsonResponse({ status: "error", message: "Dados do livro incompletos." });
+  }
+  
+  const role = getUserRole(bookData.adminEmail);
+  const emailClean = bookData.adminEmail.toLowerCase().trim();
+  const isAdmin = role === "master_admin" || role === "admin" || emailClean === "andreiaandy07@gmail.com" || emailClean === "albertofit7@gmail.com";
+  if (!isAdmin) {
+    return createJsonResponse({ status: "error", message: "Apenas administradores podem gerenciar livros." });
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet } = checkAndInitLibrarySheets(ss);
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    
+    const id = bookData.id || "LIV-" + new Date().getTime();
+    const titulo = bookData.titulo;
+    const autor = bookData.autor || "";
+    const sinopse = bookData.sinopse || "";
+    const capaUrl = bookData.capaUrl || "";
+    const localizacao = bookData.localizacao || "";
+    const qtdTotal = parseInt(bookData.qtdTotal) || 1;
+    const categoria = bookData.categoria || "Geral";
+    
+    let rowIndex = -1;
+    let oldQtdDisponivel = qtdTotal;
+    let oldQtdTotal = qtdTotal;
+    
+    if (bookData.id) {
+      for (let i = 1; i < booksRaw.length; i++) {
+        if (booksRaw[i][0].toString() === id) {
+          rowIndex = i + 1;
+          oldQtdTotal = parseInt(booksRaw[i][6]) || 0;
+          oldQtdDisponivel = parseInt(booksRaw[i][7]) || 0;
+          break;
+        }
+      }
+    }
+    
+    const diff = qtdTotal - oldQtdTotal;
+    let qtdDisponivel = oldQtdDisponivel + diff;
+    if (qtdDisponivel < 0) qtdDisponivel = 0;
+    
+    if (rowIndex !== -1) {
+      livrosSheet.getRange(rowIndex, 2).setValue(titulo);
+      livrosSheet.getRange(rowIndex, 3).setValue(autor);
+      livrosSheet.getRange(rowIndex, 4).setValue(sinopse);
+      livrosSheet.getRange(rowIndex, 5).setValue(capaUrl);
+      livrosSheet.getRange(rowIndex, 6).setValue(localizacao);
+      livrosSheet.getRange(rowIndex, 7).setValue(qtdTotal);
+      livrosSheet.getRange(rowIndex, 8).setValue(qtdDisponivel);
+      livrosSheet.getRange(rowIndex, 9).setValue(true);
+      livrosSheet.getRange(rowIndex, 10).setValue(categoria);
+    } else {
+      livrosSheet.appendRow([id, titulo, autor, sinopse, capaUrl, localizacao, qtdTotal, qtdTotal, true, categoria]);
+    }
+    
+    return createJsonResponse({ status: "success", message: "Livro salvo com sucesso!", id: id });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao salvar livro: " + err.toString() });
+  }
+}
+
+function handleDeleteBook(bookData) {
+  if (!bookData || !bookData.id || !bookData.adminEmail) {
+    return createJsonResponse({ status: "error", message: "Dados incompletos." });
+  }
+  
+  const role = getUserRole(bookData.adminEmail);
+  const emailClean = bookData.adminEmail.toLowerCase().trim();
+  const isAdmin = role === "master_admin" || role === "admin" || emailClean === "andreiaandy07@gmail.com" || emailClean === "albertofit7@gmail.com";
+  if (!isAdmin) {
+    return createJsonResponse({ status: "error", message: "Apenas administradores podem gerenciar livros." });
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet } = checkAndInitLibrarySheets(ss);
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    
+    for (let i = 1; i < booksRaw.length; i++) {
+      if (booksRaw[i][0].toString() === bookData.id) {
+        livrosSheet.getRange(i + 1, 9).setValue(false);
+        return createJsonResponse({ status: "success", message: "Livro excluído com sucesso!" });
+      }
+    }
+    
+    return createJsonResponse({ status: "error", message: "Livro não encontrado." });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao excluir livro: " + err.toString() });
+  }
+}
+
+function handleRequestBookLoan(loanData) {
+  if (!loanData || !loanData.livroId || !loanData.email || !loanData.nome) {
+    return createJsonResponse({ status: "error", message: "Dados do empréstimo incompletos." });
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet, emprestimosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    let bookIndex = -1;
+    let bookTitle = "";
+    let qtdDisponivel = 0;
+    
+    for (let i = 1; i < booksRaw.length; i++) {
+      if (booksRaw[i][0].toString() === loanData.livroId) {
+        const activeVal = booksRaw[i][8];
+        const isAtivo = activeVal === true || activeVal === "TRUE" || activeVal === "true" || activeVal === "";
+        if (!isAtivo) break;
+        
+        bookIndex = i + 1;
+        bookTitle = booksRaw[i][1].toString();
+        qtdDisponivel = parseInt(booksRaw[i][7]) || 0;
+        break;
+      }
+    }
+    
+    if (bookIndex === -1) {
+      return createJsonResponse({ status: "error", message: "Livro não disponível para empréstimo." });
+    }
+    
+    if (qtdDisponivel <= 0) {
+      return createJsonResponse({ status: "error", message: "Não há exemplares disponíveis no momento." });
+    }
+    
+    const loansRaw = emprestimosSheet.getDataRange().getValues();
+    const searchEmail = loanData.email.toLowerCase().trim();
+    for (let i = 1; i < loansRaw.length; i++) {
+      const lEmail = loansRaw[i][3].toString().toLowerCase().trim();
+      const lLivroId = loansRaw[i][1].toString();
+      const lStatus = loansRaw[i][9].toString();
+      
+      if (lEmail === searchEmail && lLivroId === loanData.livroId && (lStatus === "Solicitado" || lStatus === "Ativo")) {
+        return createJsonResponse({ status: "error", message: "Você já possui uma solicitação ou empréstimo ativo deste livro." });
+      }
+    }
+    
+    livrosSheet.getRange(bookIndex, 8).setValue(qtdDisponivel - 1);
+    
+    const loanId = "EMP-" + new Date().getTime();
+    const now = new Date();
+    
+    emprestimosSheet.appendRow([
+      loanId,
+      loanData.livroId,
+      bookTitle,
+      loanData.email,
+      loanData.nome,
+      now,
+      "",
+      "",
+      "",
+      "Solicitado"
+    ]);
+    
+    return createJsonResponse({ status: "success", message: "Solicitação enviada! Retire o livro no terreiro." });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao solicitar empréstimo: " + err.toString() });
+  }
+}
+
+function handleCancelBookLoanRequest(loanData) {
+  if (!loanData || !loanData.loanId) {
+    return createJsonResponse({ status: "error", message: "ID do empréstimo ausente." });
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet, emprestimosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const loansRaw = emprestimosSheet.getDataRange().getValues();
+    let loanRowIndex = -1;
+    let livroId = "";
+    let status = "";
+    
+    for (let i = 1; i < loansRaw.length; i++) {
+      if (loansRaw[i][0].toString() === loanData.loanId) {
+        loanRowIndex = i + 1;
+        livroId = loansRaw[i][1].toString();
+        status = loansRaw[i][9].toString();
+        break;
+      }
+    }
+    
+    if (loanRowIndex === -1) {
+      return createJsonResponse({ status: "error", message: "Solicitação não encontrada." });
+    }
+    
+    if (status !== "Solicitado") {
+      return createJsonResponse({ status: "error", message: "Apenas solicitações pendentes podem ser canceladas." });
+    }
+    
+    emprestimosSheet.getRange(loanRowIndex, 10).setValue("Cancelado");
+    
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    for (let i = 1; i < booksRaw.length; i++) {
+      if (booksRaw[i][0].toString() === livroId) {
+        const currentDisp = parseInt(booksRaw[i][7]) || 0;
+        livrosSheet.getRange(i + 1, 8).setValue(currentDisp + 1);
+        break;
+      }
+    }
+    
+    return createJsonResponse({ status: "success", message: "Solicitação cancelada com sucesso!" });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao cancelar solicitação: " + err.toString() });
+  }
+}
+
+function handleConfirmBookPickup(loanData) {
+  if (!loanData || !loanData.loanId || !loanData.adminEmail) {
+    return createJsonResponse({ status: "error", message: "Dados incompletos." });
+  }
+  
+  const role = getUserRole(loanData.adminEmail);
+  const emailClean = loanData.adminEmail.toLowerCase().trim();
+  const isAdmin = role === "master_admin" || role === "admin" || emailClean === "andreiaandy07@gmail.com" || emailClean === "albertofit7@gmail.com";
+  if (!isAdmin) {
+    return createJsonResponse({ status: "error", message: "Apenas administradores podem confirmar retiradas." });
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { emprestimosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const loansRaw = emprestimosSheet.getDataRange().getValues();
+    let loanRowIndex = -1;
+    let status = "";
+    
+    for (let i = 1; i < loansRaw.length; i++) {
+      if (loansRaw[i][0].toString() === loanData.loanId) {
+        loanRowIndex = i + 1;
+        status = loansRaw[i][9].toString();
+        break;
+      }
+    }
+    
+    if (loanRowIndex === -1) {
+      return createJsonResponse({ status: "error", message: "Empréstimo não encontrado." });
+    }
+    
+    if (status !== "Solicitado") {
+      return createJsonResponse({ status: "error", message: "Este empréstimo não está com retirada pendente." });
+    }
+    
+    const now = new Date();
+    const expected = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
+    
+    emprestimosSheet.getRange(loanRowIndex, 7).setValue(now);
+    emprestimosSheet.getRange(loanRowIndex, 8).setValue(expected);
+    emprestimosSheet.getRange(loanRowIndex, 10).setValue("Ativo");
+    
+    return createJsonResponse({ status: "success", message: "Retirada confirmada! Empréstimo ativo." });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao confirmar retirada: " + err.toString() });
+  }
+}
+
+function handleConfirmBookReturn(loanData) {
+  if (!loanData || !loanData.loanId || !loanData.adminEmail) {
+    return createJsonResponse({ status: "error", message: "Dados incompletos." });
+  }
+  
+  const role = getUserRole(loanData.adminEmail);
+  const emailClean = loanData.adminEmail.toLowerCase().trim();
+  const isAdmin = role === "master_admin" || role === "admin" || emailClean === "andreiaandy07@gmail.com" || emailClean === "albertofit7@gmail.com";
+  if (!isAdmin) {
+    return createJsonResponse({ status: "error", message: "Apenas administradores podem confirmar devoluções." });
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet, emprestimosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const loansRaw = emprestimosSheet.getDataRange().getValues();
+    let loanRowIndex = -1;
+    let livroId = "";
+    let status = "";
+    
+    for (let i = 1; i < loansRaw.length; i++) {
+      if (loansRaw[i][0].toString() === loanData.loanId) {
+        loanRowIndex = i + 1;
+        livroId = loansRaw[i][1].toString();
+        status = loansRaw[i][9].toString();
+        break;
+      }
+    }
+    
+    if (loanRowIndex === -1) {
+      return createJsonResponse({ status: "error", message: "Empréstimo não encontrado." });
+    }
+    
+    if (status !== "Ativo" && status !== "Solicitado") {
+      return createJsonResponse({ status: "error", message: "Este empréstimo não está ativo." });
+    }
+    
+    const now = new Date();
+    
+    emprestimosSheet.getRange(loanRowIndex, 9).setValue(now);
+    emprestimosSheet.getRange(loanRowIndex, 10).setValue("Devolvido");
+    
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    for (let i = 1; i < booksRaw.length; i++) {
+      if (booksRaw[i][0].toString() === livroId) {
+        const currentDisp = parseInt(booksRaw[i][7]) || 0;
+        livrosSheet.getRange(i + 1, 8).setValue(currentDisp + 1);
+        break;
+      }
+    }
+    
+    return createJsonResponse({ status: "success", message: "Devolução registrada com sucesso!" });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao confirmar devolução: " + err.toString() });
+  }
+}
+
+function onOpen() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu("TUIG - Administração")
+      .addItem("Consolidar Livros do Acervo", "consolidateBooks")
+      .addItem("Buscar Capas e Sinopses Automaticamente", "enrichBookDetails")
+      .addToUi();
+  } catch (e) {
+    Logger.log("Não foi possível criar o menu da planilha. Se você está executando do editor, isso é normal: " + e.toString());
+  }
+}
+
+function showAlert(msg) {
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (e) {
+    Logger.log("ALERTA: " + msg);
+  }
+}
+
+function consolidateBooks() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const booksRaw = livrosSheet.getDataRange().getValues();
+    const existingBooks = new Set();
+    for (let i = 1; i < booksRaw.length; i++) {
+      const title = booksRaw[i][1].toString().toLowerCase().trim();
+      const author = booksRaw[i][2].toString().toLowerCase().trim();
+      existingBooks.add(`${title}||${author}`);
+    }
+    
+    const sheets = ss.getSheets();
+    let importedCount = 0;
+    
+    for (const sheet of sheets) {
+      const name = sheet.getName();
+      // Pula as abas que nós criamos
+      if (name === NOME_ABA_LIVROS || name === NOME_ABA_EMPRESTIMOS) continue;
+      
+      const data = sheet.getDataRange().getValues();
+      if (data.length <= 1) continue; // Pula abas vazias ou com apenas cabeçalho
+      
+      for (let i = 1; i < data.length; i++) {
+        const title = data[i][0] ? data[i][0].toString().trim() : "";
+        const author = data[i][1] ? data[i][1].toString().trim() : "";
+        
+        if (!title) continue;
+        
+        const key = `${title.toLowerCase()}||${author.toLowerCase()}`;
+        if (!existingBooks.has(key)) {
+          // Gera um ID único simples
+          const id = "LIV-" + new Date().getTime() + "-" + Math.floor(Math.random() * 1000);
+          // Colunas: ID, Título, Autor, Sinopse, CapaURL, Localização, QtdTotal, QtdDisponivel, Ativo, Categoria
+          livrosSheet.appendRow([id, title, author, "", "", "Acervo", 1, 1, true, name]);
+          existingBooks.add(key);
+          importedCount++;
+        }
+      }
+    }
+    
+    showAlert(`Consolidação Concluída!\n\n${importedCount} novos livros foram importados e organizados por categorias na aba '${NOME_ABA_LIVROS}'.`);
+  } catch (err) {
+    showAlert("Erro ao consolidar acervo: " + err.toString());
+  }
+}
+
+function enrichBookDetails() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
+    const { livrosSheet } = checkAndInitLibrarySheets(ss);
+    
+    const data = livrosSheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      showAlert("Nenhum livro encontrado para enriquecer.");
+      return;
+    }
+    
+    let enrichedCount = 0;
+    let checkedCount = 0;
+    
+    // Processamos no máximo 50 livros por rodada para evitar timeouts do Google Apps Script
+    const maxBatch = 50;
+    
+    for (let i = 1; i < data.length; i++) {
+      if (enrichedCount >= maxBatch) break;
+      
+      const title = data[i][1] ? data[i][1].toString().trim() : "";
+      const author = data[i][2] ? data[i][2].toString().trim() : "";
+      const currentSynopsis = data[i][3] ? data[i][3].toString().trim() : "";
+      const currentCover = data[i][4] ? data[i][4].toString().trim() : "";
+      const activeVal = data[i][8];
+      const isAtivo = activeVal === true || activeVal === "TRUE" || activeVal === "true" || activeVal === "";
+      
+      // Só busca se o livro estiver ativo e não tiver sinopse OU não tiver capa
+      if (isAtivo && (!currentSynopsis || !currentCover)) {
+        checkedCount++;
+        
+        let queryStr = title;
+        if (author && author.toLowerCase() !== "não informado" && author.toLowerCase() !== "não cadastrada") {
+          queryStr += " " + author;
+        }
+        
+        const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(queryStr)}&limit=1`;
+        
+        try {
+          const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+          if (response.getResponseCode() === 200) {
+            const json = JSON.parse(response.getContentText());
+            if (json.docs && json.docs.length > 0) {
+              const doc = json.docs[0];
+              
+              let newSynopsis = currentSynopsis;
+              let newCover = currentCover;
+              
+              // 1. Busca Capa
+              if (!currentCover) {
+                if (doc.cover_i) {
+                  newCover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+                } else if (doc.cover_edition_key) {
+                  newCover = `https://covers.openlibrary.org/b/olid/${doc.cover_edition_key}-L.jpg`;
+                }
+              }
+              
+              // 2. Busca Sinopse (Faz uma segunda requisição detalhada do Work se necessário)
+              if (!currentSynopsis && doc.key) {
+                const workUrl = `https://openlibrary.org${doc.key}.json`;
+                const workRes = UrlFetchApp.fetch(workUrl, { muteHttpExceptions: true });
+                if (workRes.getResponseCode() === 200) {
+                  const workJson = JSON.parse(workRes.getContentText());
+                  if (workJson.description) {
+                    if (typeof workJson.description === 'object' && workJson.description.value) {
+                      newSynopsis = workJson.description.value;
+                    } else if (typeof workJson.description === 'string') {
+                      newSynopsis = workJson.description;
+                    }
+                  }
+                }
+              }
+              
+              // Grava na planilha se mudou alguma coisa
+              if (newSynopsis !== currentSynopsis || newCover !== currentCover) {
+                const rowIndex = i + 1;
+                if (newSynopsis !== currentSynopsis) {
+                  livrosSheet.getRange(rowIndex, 4).setValue(newSynopsis);
+                }
+                if (newCover !== currentCover) {
+                  livrosSheet.getRange(rowIndex, 5).setValue(newCover);
+                }
+                enrichedCount++;
+              }
+            }
+          }
+          Utilities.sleep(500); // Respeitar limites do Open Library
+        } catch (e) {
+          Logger.log(`Erro ao buscar detalhes no Open Library para "${title}": ` + e.toString());
+        }
+      }
+    }
+    
+    showAlert(
+      `Varredura Concluída!\n\n` +
+      `- Livros analisados nesta rodada: ${checkedCount}\n` +
+      `- Livros enriquecidos com sucesso (capa/sinopse adicionados): ${enrichedCount}\n\n` +
+      `Se ainda houver livros sem dados, basta rodar o menu novamente.`
+    );
+  } catch (err) {
+    showAlert("Erro ao enriquecer acervo: " + err.toString());
+  }
 }
 

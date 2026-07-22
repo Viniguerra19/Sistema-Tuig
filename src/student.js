@@ -60,6 +60,9 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                 <!-- Controle Financeiro / Mensalidades -->
                 <div id="payment-card-container"></div>
 
+                <!-- Biblioteca -->
+                <div id="library-card-container"></div>
+
                 <!-- Histórico e Rituais -->
                 <section class="animate-fade-in">
                     <div id="rituals-list">
@@ -88,6 +91,9 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
 
     const oldUploadReceiptModal = document.getElementById('upload-receipt-modal');
     if (oldUploadReceiptModal) oldUploadReceiptModal.remove();
+
+    const oldLibraryModal = document.getElementById('library-modal');
+    if (oldLibraryModal) oldLibraryModal.remove();
 
     if (!document.getElementById('history-modal')) {
         modalsContainer.insertAdjacentHTML('beforeend', `
@@ -173,6 +179,36 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
         `);
     }
 
+    if (!document.getElementById('library-modal')) {
+        modalsContainer.insertAdjacentHTML('beforeend', `
+            <div id="library-modal" class="modal">
+                <div class="modal-content" style="max-width: 900px; width: 95%;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                        <h2 style="margin:0; font-size:1.6rem; font-weight:800; letter-spacing:-0.03em;">Vitrine de Livros</h2>
+                        <span id="close-library-modal" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1; cursor:pointer;">&times;</span>
+                    </div>
+                    
+                    <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom: 20px;">
+                        Explore o acervo do terreiro. Você terá <strong>15 dias</strong> para ler e devolver o livro ao terreiro. Após solicitar, confirme a retirada com um administrador físico.
+                    </p>
+                    
+                    <div style="position: relative; margin-bottom: 16px;">
+                        <span style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size:1rem; opacity:0.6;">🔍</span>
+                        <input type="text" id="library-search-input" placeholder="Buscar por título ou autor..." style="padding: 12px 12px 12px 40px; border-radius: 12px; margin-bottom: 0; box-sizing: border-box;">
+                    </div>
+
+                    <div id="library-categories-container" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 20px; scrollbar-width: none; -ms-overflow-style: none;">
+                        <!-- Injetado dinamicamente via JS -->
+                    </div>
+                    
+                    <div id="library-books-list" class="books-grid">
+                        <!-- Injetado via Javascript -->
+                    </div>
+                </div>
+            </div>
+        `);
+    }
+
     // Bind events
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout && targetContainerId === 'app') {
@@ -230,6 +266,20 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
     document.getElementById('close-upload-receipt-modal').addEventListener('click', () => {
         closeModalById('upload-receipt-modal');
     });
+
+    const closeLibBtn = document.getElementById('close-library-modal');
+    if (closeLibBtn) {
+        closeLibBtn.addEventListener('click', () => {
+            closeModalById('library-modal');
+        });
+    }
+
+    const searchLibInput = document.getElementById('library-search-input');
+    if (searchLibInput) {
+        searchLibInput.addEventListener('keyup', (e) => {
+            renderBooksShowcase(e.target.value);
+        });
+    }
 
     document.getElementById('btn-submit-receipt').addEventListener('click', async () => {
         const fileInput = document.getElementById('receipt-file-input');
@@ -350,6 +400,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
 
         if (json.status === "success") {
             showUserData(json.data);
+            renderStudentLibrary(email);
         } else {
             showError(json.message);
         }
@@ -767,4 +818,427 @@ function isJustificationAllowed(evtRawDateStr) {
 }
 
 window.isJustificationAllowed = isJustificationAllowed;
+
+// ==========================================
+// SEÇÃO DE BIBLIOTECA - PORTAL DO ALUNO
+// ==========================================
+
+export async function renderStudentLibrary(email) {
+    const cardContainer = document.getElementById('library-card-container');
+    if (!cardContainer) return;
+
+    cardContainer.innerHTML = `
+        <div class="presence-card animate-fade-in" style="background: var(--glass-bg); padding: 24px; border-radius: 20px; border: 1px solid var(--glass-border); box-shadow: var(--premium-shadow); margin-bottom: 20px;">
+            <h3 style="margin-top: 0; margin-bottom: 6px; font-weight: 700; font-size: 1.2rem; color: #fff; letter-spacing: -0.02em;">Biblioteca do Terreiro</h3>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">Consulte os livros disponíveis e acompanhe seus empréstimos ativos.</p>
+            <div id="library-loading" class="loader active"></div>
+            <div id="student-loans-list" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;"></div>
+            <button id="btn-open-library" style="width: 100%; padding: 14px; font-size: 0.95rem; border-radius: 12px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                📚 Acessar Vitrine de Livros
+            </button>
+        </div>
+    `;
+
+    try {
+        const json = await apiFetch('getBooksData', { params: { email } });
+        
+        const loader = document.getElementById('library-loading');
+        if (loader) loader.classList.remove('active');
+
+        if (json.status === "success") {
+            window.libraryData = {
+                books: json.books || [],
+                loans: json.loans || []
+            };
+
+            renderStudentLoans(email);
+
+            // Bind de abertura do modal
+            document.getElementById('btn-open-library').addEventListener('click', () => {
+                const searchInput = document.getElementById('library-search-input');
+                if (searchInput) searchInput.value = '';
+                window.activeLibraryCategory = 'Todos';
+                openModalById('library-modal');
+                renderBooksShowcase('');
+            });
+        } else {
+            const listDiv = document.getElementById('student-loans-list');
+            if (listDiv) listDiv.innerHTML = `<p style="color: #ef4444; font-size: 0.85rem; text-align: center;">Erro ao carregar acervo: ${json.message}</p>`;
+        }
+    } catch (e) {
+        const loader = document.getElementById('library-loading');
+        if (loader) loader.classList.remove('active');
+        const listDiv = document.getElementById('student-loans-list');
+        if (listDiv) listDiv.innerHTML = '<p style="color: #ef4444; font-size: 0.85rem; text-align: center;">Erro de conexão com o servidor.</p>';
+    }
+}
+
+function renderStudentLoans(email) {
+    const listDiv = document.getElementById('student-loans-list');
+    if (!listDiv || !window.libraryData) return;
+
+    listDiv.innerHTML = '';
+    const myLoans = window.libraryData.loans.filter(l => l.email.toLowerCase().trim() === email.toLowerCase().trim() && l.status !== "Devolvido" && l.status !== "Cancelado");
+
+    if (myLoans.length === 0) {
+        listDiv.innerHTML = `<p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin: 10px 0; font-style: italic;">Você não possui nenhum empréstimo ativo no momento.</p>`;
+        return;
+    }
+
+    myLoans.forEach(loan => {
+        const item = document.createElement('div');
+        item.style.background = 'rgba(255, 255, 255, 0.015)';
+        item.style.border = '1px solid rgba(255, 255, 255, 0.05)';
+        item.style.borderRadius = '12px';
+        item.style.padding = '12px 16px';
+        item.style.display = 'flex';
+        item.style.justifyContent = 'space-between';
+        item.style.alignItems = 'center';
+        item.style.flexWrap = 'wrap';
+        item.style.gap = '10px';
+
+        let badgeClass = 'badge-loan-requested';
+        let badgeLabel = 'Solicitado';
+        let dateLabel = '';
+
+        if (loan.status === 'Ativo') {
+            badgeClass = 'badge-loan-active';
+            badgeLabel = 'Com Você';
+            const expectedDate = new Date(loan.dataDevolucaoPrevista).toLocaleDateString('pt-BR');
+            dateLabel = `<span style="font-size:0.75rem; color:var(--text-muted)">Devolução prevista: <strong style="color:#fff">${expectedDate}</strong></span>`;
+        } else if (loan.status === 'Atrasado') {
+            badgeClass = 'badge-loan-overdue';
+            badgeLabel = 'ATRASADO ⚠️';
+            const expectedDate = new Date(loan.dataDevolucaoPrevista).toLocaleDateString('pt-BR');
+            dateLabel = `<span style="font-size:0.75rem; color:#f87171">Devolução prevista: <strong>${expectedDate}</strong></span>`;
+        } else {
+            dateLabel = `<span style="font-size:0.75rem; color:var(--text-muted)">Aguardando retirada física</span>`;
+        }
+
+        item.innerHTML = `
+            <div style="flex: 1; min-width: 150px;">
+                <h4 style="font-size: 0.9rem; color: #fff; margin: 0; font-weight: 600;">${loan.tituloLivro}</h4>
+                <div style="margin-top: 4px; display: flex; flex-direction: column;">
+                    ${dateLabel}
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="badge-loan ${badgeClass}">${badgeLabel}</span>
+                ${loan.status === 'Solicitado' ? `
+                    <button class="btn-cancel-loan-request" data-loan-id="${loan.id}" style="padding: 6px 10px; font-size: 0.75rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #fff; border-radius: 8px; cursor: pointer; font-weight: 500; border: none;">
+                        Cancelar
+                    </button>
+                ` : ''}
+            </div>
+        `;
+
+        listDiv.appendChild(item);
+    });
+
+    // Event listener para cancelamentos
+    listDiv.querySelectorAll('.btn-cancel-loan-request').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const loanId = e.currentTarget.getAttribute('data-loan-id');
+            if (confirm("Deseja realmente cancelar esta solicitação de empréstimo?")) {
+                const originalText = e.currentTarget.innerHTML;
+                e.currentTarget.disabled = true;
+                e.currentTarget.innerHTML = '...';
+
+                try {
+                    const res = await apiFetch('cancelBookLoanRequest', {
+                        method: 'POST',
+                        data: { loanId }
+                    });
+
+                    if (res.status === 'success') {
+                        alert(res.message);
+                        await renderStudentLibrary(email);
+                        const libModal = document.getElementById('library-modal');
+                        if (libModal && libModal.style.display === 'block') {
+                            renderBooksShowcase(document.getElementById('library-search-input').value);
+                        }
+                    } else {
+                        alert("Erro: " + res.message);
+                        e.currentTarget.disabled = false;
+                        e.currentTarget.innerHTML = originalText;
+                    }
+                } catch (err) {
+                    alert("Erro ao conectar com o servidor.");
+                    e.currentTarget.disabled = false;
+                    e.currentTarget.innerHTML = originalText;
+                }
+            }
+        });
+    });
+}
+
+export function renderBooksShowcase(filterQuery = '') {
+    const listDiv = document.getElementById('library-books-list');
+    const categoriesContainer = document.getElementById('library-categories-container');
+    if (!listDiv || !window.libraryData) return;
+
+    const query = filterQuery.toLowerCase().trim();
+    const email = localStorage.getItem('tuig_email');
+    
+    // 1. Extrair categorias únicas de todos os livros
+    const books = window.libraryData.books;
+    const categories = ['Todos', ...new Set(books.map(b => b.categoria).filter(Boolean))];
+    
+    // Inicializa categoria padrão se não definida
+    if (!window.activeLibraryCategory) {
+        window.activeLibraryCategory = 'Todos';
+    }
+
+    // 2. Renderizar botões de categorias se houver mais de uma categoria
+    if (categoriesContainer) {
+        categoriesContainer.innerHTML = '';
+        if (categories.length > 1) {
+            categories.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.innerText = cat;
+                btn.style.padding = '8px 16px';
+                btn.style.fontSize = '0.8rem';
+                btn.style.borderRadius = '20px';
+                btn.style.border = 'none';
+                btn.style.cursor = 'pointer';
+                btn.style.flex = '0 0 auto';
+                btn.style.fontWeight = '600';
+                btn.style.transition = 'all 0.2s';
+                
+                if (window.activeLibraryCategory === cat) {
+                    btn.style.background = 'var(--primary)';
+                    btn.style.color = '#fff';
+                } else {
+                    btn.style.background = 'rgba(255, 255, 255, 0.05)';
+                    btn.style.color = 'var(--text-muted)';
+                }
+                
+                btn.addEventListener('click', () => {
+                    window.activeLibraryCategory = cat;
+                    // Re-renderiza mantendo a busca atual
+                    const currentSearch = document.getElementById('library-search-input')?.value || '';
+                    renderBooksShowcase(currentSearch);
+                });
+                
+                categoriesContainer.appendChild(btn);
+            });
+            categoriesContainer.style.display = 'flex';
+        } else {
+            categoriesContainer.style.display = 'none';
+        }
+    }
+
+    listDiv.innerHTML = '';
+
+    // 3. Filtrar livros por busca e por categoria
+    const filteredBooks = books.filter(b => {
+        const matchesSearch = b.titulo.toLowerCase().includes(query) || b.autor.toLowerCase().includes(query);
+        const matchesCategory = window.activeLibraryCategory === 'Todos' || b.categoria === window.activeLibraryCategory;
+        return matchesSearch && matchesCategory;
+    });
+
+    if (filteredBooks.length === 0) {
+        listDiv.innerHTML = `<p style="color: var(--text-muted); font-size: 0.95rem; text-align: center; grid-column: 1/-1; padding: 40px 0;">Nenhum livro encontrado para os filtros selecionados.</p>`;
+        return;
+    }
+
+    filteredBooks.forEach(book => {
+        const card = document.createElement('div');
+        card.className = 'book-card animate-fade-in';
+
+        const activeUserLoans = window.libraryData.loans.filter(l => 
+            l.livroId === book.id && 
+            l.email.toLowerCase().trim() === email.toLowerCase().trim() && 
+            l.status !== 'Devolvido' && 
+            l.status !== 'Cancelado'
+        );
+
+        let statusBadge = '';
+        let actionButton = '';
+
+        if (activeUserLoans.length > 0) {
+            const loan = activeUserLoans[0];
+            if (loan.status === 'Solicitado') {
+                statusBadge = `<span class="badge-loan badge-loan-requested">Solicitado por você</span>`;
+                actionButton = `
+                    <button class="btn-cancel-showcase-request" data-loan-id="${loan.id}" style="width: 100%; padding: 12px; font-size: 0.9rem; border-radius: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #f87171; cursor: pointer;">
+                        Cancelar Reserva
+                    </button>
+                `;
+            } else if (loan.status === 'Ativo') {
+                const expDate = new Date(loan.dataDevolucaoPrevista).toLocaleDateString('pt-BR');
+                statusBadge = `<span class="badge-loan badge-loan-active">Com você</span>`;
+                actionButton = `
+                    <button disabled style="width: 100%; padding: 12px; font-size: 0.9rem; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); color: var(--text-muted); cursor: not-allowed;">
+                        Devolver até ${expDate}
+                    </button>
+                `;
+            } else if (loan.status === 'Atrasado') {
+                statusBadge = `<span class="badge-loan badge-loan-overdue">ATRASADO ⚠️</span>`;
+                actionButton = `
+                    <button disabled style="width: 100%; padding: 12px; font-size: 0.9rem; border-radius: 10px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); color: #f87171; cursor: not-allowed;">
+                        Atrasado! Devolva no Terreiro.
+                    </button>
+                `;
+            }
+        } else {
+            if (book.qtdDisponivel > 0) {
+                statusBadge = `<span class="badge-loan badge-loan-returned" style="color: #34d399; border-color: rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05);">${book.qtdDisponivel} Disponível(is)</span>`;
+                actionButton = `
+                    <button class="btn-request-loan" data-book-id="${book.id}" style="width: 100%; padding: 12px; font-size: 0.9rem; border-radius: 10px; font-weight:600; cursor:pointer;">
+                        Solicitar Empréstimo
+                    </button>
+                `;
+            } else {
+                statusBadge = `<span class="badge-loan badge-loan-overdue" style="background: rgba(239, 68, 68, 0.05); color: #ef4444; border-color: rgba(239, 68, 68, 0.15);">Sem estoque</span>`;
+                actionButton = `
+                    <button disabled style="width: 100%; padding: 12px; font-size: 0.9rem; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); color: var(--text-muted); cursor: not-allowed;">
+                        Indisponível no momento
+                    </button>
+                `;
+            }
+        }
+
+        let coverHtml = '';
+        if (book.capaUrl && book.capaUrl.startsWith('http')) {
+            coverHtml = `
+                <div class="book-cover-container">
+                    <img src="${book.capaUrl}" class="book-cover-img" alt="Capa de ${book.titulo}">
+                </div>
+            `;
+        } else {
+            coverHtml = `
+                <div class="book-cover-container">
+                    <div class="book-cover-css">
+                        <div class="book-cover-css-title">${book.titulo}</div>
+                        <div class="book-cover-css-author">${book.autor}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        card.innerHTML = `
+            ${coverHtml}
+            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px;">
+                        <h4 class="book-info-title" title="${book.titulo}">${book.titulo}</h4>
+                        ${statusBadge}
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                        <span class="badge-loan" style="font-size: 0.65rem; padding: 3px 8px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); text-transform: uppercase;">${book.categoria || 'Geral'}</span>
+                    </div>
+                    <p class="book-info-author" title="${book.autor}">por ${book.autor || 'Autor desconhecido'}</p>
+                    
+                    <div class="book-info-detail">📍 Local: <strong>${book.localizacao || 'Não especificado'}</strong></div>
+                    <div class="book-info-detail">📚 Prazo: <strong>15 Dias de empréstimo</strong></div>
+                    
+                    ${book.sinopse ? `
+                        <div style="margin-top: 10px; margin-bottom: 12px;">
+                            <button class="book-synopsis-toggle" data-id="${book.id}">Ver Sinopse</button>
+                            <div class="book-synopsis-text" id="synopsis-${book.id}">${book.sinopse}</div>
+                        </div>
+                    ` : '<div style="height: 15px;"></div>'}
+                </div>
+                <div style="margin-top: auto;">
+                    ${actionButton}
+                </div>
+            </div>
+        `;
+
+        listDiv.appendChild(card);
+    });
+
+    // Bind para toggles de sinopse
+    listDiv.querySelectorAll('.book-synopsis-toggle').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const id = e.currentTarget.getAttribute('data-id');
+            const synDiv = document.getElementById(`synopsis-${id}`);
+            if (synDiv) {
+                if (synDiv.style.display === 'block') {
+                    synDiv.style.display = 'none';
+                    e.currentTarget.innerText = 'Ver Sinopse';
+                } else {
+                    synDiv.style.display = 'block';
+                    e.currentTarget.innerText = 'Fechar Sinopse';
+                }
+            }
+        });
+    });
+
+    // Bind para solicitação de empréstimo
+    listDiv.querySelectorAll('.btn-request-loan').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const bookId = e.currentTarget.getAttribute('data-book-id');
+            const studentName = document.getElementById('user-name').innerText;
+
+            if (confirm("Você terá 15 dias para ler e devolver este livro fisicamente ao terreiro. Deseja solicitar o empréstimo?")) {
+                const originalText = e.currentTarget.innerHTML;
+                e.currentTarget.disabled = true;
+                e.currentTarget.innerHTML = 'Enviando...';
+
+                try {
+                    const res = await apiFetch('requestBookLoan', {
+                        method: 'POST',
+                        data: {
+                            livroId: bookId,
+                            email: email,
+                            nome: studentName
+                        }
+                    });
+
+                    if (res.status === 'success') {
+                        alert(res.message);
+                        await renderStudentLibrary(email);
+                        renderBooksShowcase(document.getElementById('library-search-input').value);
+                    } else {
+                        alert("Erro: " + res.message);
+                        e.currentTarget.disabled = false;
+                        e.currentTarget.innerHTML = originalText;
+                    }
+                } catch (err) {
+                    alert("Erro ao conectar com o servidor.");
+                    e.currentTarget.disabled = false;
+                    e.currentTarget.innerHTML = originalText;
+                }
+            }
+        });
+    });
+
+    // Bind para cancelamento direto da vitrine
+    listDiv.querySelectorAll('.btn-cancel-showcase-request').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const loanId = e.currentTarget.getAttribute('data-loan-id');
+            if (confirm("Deseja realmente cancelar esta solicitação de empréstimo?")) {
+                const originalText = e.currentTarget.innerHTML;
+                e.currentTarget.disabled = true;
+                e.currentTarget.innerHTML = '...';
+
+                try {
+                    const res = await apiFetch('cancelBookLoanRequest', {
+                        method: 'POST',
+                        data: { loanId }
+                    });
+
+                    if (res.status === 'success') {
+                        alert(res.message);
+                        await renderStudentLibrary(email);
+                        renderBooksShowcase(document.getElementById('library-search-input').value);
+                    } else {
+                        alert("Erro: " + res.message);
+                        e.currentTarget.disabled = false;
+                        e.currentTarget.innerHTML = originalText;
+                    }
+                } catch (err) {
+                    alert("Erro ao conectar com o servidor.");
+                    e.currentTarget.disabled = false;
+                    e.currentTarget.innerHTML = originalText;
+                }
+            }
+        });
+    });
+}
+
+window.renderStudentLibrary = renderStudentLibrary;
+window.renderBooksShowcase = renderBooksShowcase;
 

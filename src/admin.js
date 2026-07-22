@@ -26,6 +26,7 @@ export async function renderAdminDashboard(email) {
             ${isMaster ? `<button id="btn-tab-dashboard" class="tab-button" data-tab="dashboard" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Painel Gerencial</button>` : ''}
             ${hasFullAdminAccess ? `<button id="btn-tab-admin" class="tab-button active" data-tab="admin" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Gestão de Alunos</button>` : ''}
             ${hasFullAdminAccess ? `<button id="btn-tab-finance" class="tab-button" data-tab="finance" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Financeiro</button>` : ''}
+            ${hasFullAdminAccess ? `<button id="btn-tab-library" class="tab-button" data-tab="library" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Biblioteca</button>` : ''}
             ${hasReportAccess ? `<button id="btn-tab-reports" class="tab-button ${!hasFullAdminAccess ? 'active' : ''}" data-tab="reports" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Relatórios de Rituais</button>` : ''}
             <button id="btn-tab-student" class="tab-button" data-tab="student" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Minha Ficha</button>
         </nav>
@@ -333,6 +334,94 @@ export async function renderAdminDashboard(email) {
                 </div>
             </div>
         </section>
+
+        <!-- Seção Biblioteca -->
+        <section id="section-library" class="hidden" style="margin-bottom: 40px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px;">
+                <h2 style="margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em;">Controle de Biblioteca</h2>
+                <div class="tab-container" style="display: flex; gap: 6px; padding: 4px; background: rgba(0,0,0,0.15); border-radius: 12px; border: 1px solid rgba(255,255,255,0.03);">
+                    <button id="btn-lib-subtab-loans" class="tab-button active" data-subtab="loans" style="padding: 8px 16px; font-size: 0.85rem; border-radius: 10px;">Empréstimos</button>
+                    <button id="btn-lib-subtab-books" class="tab-button" data-subtab="books" style="padding: 8px 16px; font-size: 0.85rem; border-radius: 10px;">Acervo de Livros</button>
+                </div>
+            </div>
+
+            <!-- Subseção Empréstimos -->
+            <div id="lib-content-loans" class="animate-fade-in">
+                <!-- Fila de Pedidos Pendentes de Retirada -->
+                <div class="card animate-fade-in" style="background: var(--glass-bg); padding: 24px; border-radius: 20px; border: 1px solid var(--glass-border); margin-bottom: 30px;">
+                    <h3 style="margin-top: 0; margin-bottom: 15px; font-weight: 700; font-size: 1.15rem; color: #fff; display: flex; align-items: center; gap: 8px;">
+                        <span>⏳</span> Retiradas Pendentes (Solicitações)
+                    </h3>
+                    <div id="lib-pending-loans-container" style="display: flex; flex-direction: column; gap: 12px;">
+                        <span style="color: var(--text-muted); font-size: 0.9rem;">Carregando solicitações...</span>
+                    </div>
+                </div>
+
+                <!-- Tabela de Empréstimos Ativos / Atrasados -->
+                <div class="card animate-fade-in" style="background: var(--glass-bg); padding: 24px; border-radius: 20px; border: 1px solid var(--glass-border);">
+                    <h3 style="margin-top: 0; margin-bottom: 15px; font-weight: 700; font-size: 1.15rem; color: #fff; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <span>📖</span> Empréstimos Ativos & Atrasados
+                        <input type="text" id="lib-search-loans-input" placeholder="Buscar empréstimo..." style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: #fff; margin-bottom: 0; width: 220px; font-size: 0.85rem;">
+                    </h3>
+                    <div class="table-container" style="overflow-x: auto;">
+                        <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>Livro</th>
+                                    <th>Nome do Aluno</th>
+                                    <th>E-mail</th>
+                                    <th>Data Retirada</th>
+                                    <th>Prazo Limite</th>
+                                    <th>Status</th>
+                                    <th style="text-align: center;">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lib-active-loans-body">
+                                <tr>
+                                    <td colspan="7" style="text-align: center; color: var(--text-muted);">Carregando empréstimos...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Subseção Acervo de Livros -->
+            <div id="lib-content-books" class="hidden animate-fade-in">
+                <div class="card animate-fade-in" style="background: var(--glass-bg); padding: 24px; border-radius: 20px; border: 1px solid var(--glass-border);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
+                        <h3 style="margin: 0; font-weight: 700; font-size: 1.15rem; color: #fff; display: flex; align-items: center; gap: 10px;">
+                            <span>📚</span> Acervo Cadastrado
+                            <input type="text" id="lib-search-books-input" placeholder="Buscar livro..." style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: #fff; margin-bottom: 0; width: 220px; font-size: 0.85rem;">
+                        </h3>
+                        <button id="btn-add-book" style="padding: 10px 18px; font-size: 0.85rem; border-radius: 10px;">
+                            ➕ Adicionar Livro
+                        </button>
+                    </div>
+                    <div class="table-container" style="overflow-x: auto;">
+                        <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>Capa</th>
+                                    <th>Título</th>
+                                    <th>Autor</th>
+                                    <th>Categoria</th>
+                                    <th>Localização Física</th>
+                                    <th style="text-align: center;">Qtd Total</th>
+                                    <th style="text-align: center;">Disponível</th>
+                                    <th style="text-align: center;">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lib-books-table-body">
+                                <tr>
+                                    <td colspan="8" style="text-align: center; color: var(--text-muted);">Carregando acervo...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
     `;
 
     // Initialize globals
@@ -362,6 +451,9 @@ export async function renderAdminDashboard(email) {
 
     const oldBulkModal = document.getElementById('bulk-presence-modal');
     if (oldBulkModal) oldBulkModal.remove();
+
+    const oldBookModal = document.getElementById('book-editor-modal');
+    if (oldBookModal) oldBookModal.remove();
 
     if (!document.getElementById('user-details-modal')) {
         modalsContainer.insertAdjacentHTML('beforeend', `
@@ -462,6 +554,62 @@ export async function renderAdminDashboard(email) {
                     <button id="btn-save-bulk" style="width:100%; padding:14px; background:var(--primary); border:none; border-radius:10px; color:#fff; font-weight:700; cursor:pointer; display:none; transition: all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
                         Salvar Presenças
                     </button>
+                </div>
+            </div>
+        `);
+    }
+
+    if (!document.getElementById('book-editor-modal')) {
+        modalsContainer.insertAdjacentHTML('beforeend', `
+            <div id="book-editor-modal" class="modal">
+                <div class="modal-content" style="max-width: 550px; width: 100%;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                        <h2 id="book-modal-title" style="margin:0; font-size:1.5rem; font-weight:800; letter-spacing:-0.03em;">Cadastrar Livro</h2>
+                        <span id="close-book-editor" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1; cursor:pointer;">&times;</span>
+                    </div>
+
+                    <input type="hidden" id="book-form-id">
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">Título do Livro *</label>
+                        <input type="text" id="book-form-title" placeholder="Ex: O Livro dos Médiuns" style="margin-bottom: 0;">
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">Autor</label>
+                        <input type="text" id="book-form-author" placeholder="Ex: Allan Kardec" style="margin-bottom: 0;">
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">Sinopse</label>
+                        <textarea id="book-form-synopsis" rows="3" placeholder="Breve resumo sobre a leitura..." style="width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 8px; font-size: 0.9rem; outline: none; resize: vertical;"></textarea>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">URL da Capa (Opcional)</label>
+                        <input type="text" id="book-form-cover" placeholder="https://exemplo.com/capa.jpg" style="margin-bottom: 0;">
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">Categoria *</label>
+                        <input type="text" id="book-form-category" placeholder="Ex: DIVERSOS, RELIGIÃO, MANGÁ" style="margin-bottom: 0;">
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 24px;">
+                        <div>
+                            <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">Localização Física *</label>
+                            <input type="text" id="book-form-location" placeholder="Ex: Prateleira B" style="margin-bottom: 0;">
+                        </div>
+                        <div>
+                            <label style="display:block; margin-bottom: 6px; color:#fff; font-size:0.85rem;">Qtd Total Cópias *</label>
+                            <input type="text" id="book-form-qty" placeholder="Ex: 2" value="1" style="margin-bottom: 0;">
+                        </div>
+                    </div>
+
+                    <button id="btn-save-book" style="width: 100%; padding: 14px; font-size: 1rem; border-radius: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; background: var(--primary); color: #fff; font-weight: 600; border: none; cursor: pointer;">
+                        Salvar Livro
+                    </button>
+                    <div id="book-form-feedback" style="margin-top: 15px; text-align: center; font-size: 0.9rem;"></div>
                 </div>
             </div>
         `);
@@ -827,6 +975,7 @@ function switchTab(tab) {
     const dashboardSection = document.getElementById('section-dashboard');
     const reportsSection = document.getElementById('section-reports');
     const financeSection = document.getElementById('section-finance');
+    const librarySection = document.getElementById('section-library');
 
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelector(`.tab-button[data-tab="${tab}"]`).classList.add('active');
@@ -836,6 +985,7 @@ function switchTab(tab) {
     dashboardSection.classList.add('hidden');
     if (reportsSection) reportsSection.classList.add('hidden');
     if (financeSection) financeSection.classList.add('hidden');
+    if (librarySection) librarySection.classList.add('hidden');
 
     if (tab === 'admin') {
         adminSection.classList.remove('hidden');
@@ -862,6 +1012,11 @@ function switchTab(tab) {
             if (!window.reportsCarregados) {
                 carregarRelatoriosRituais();
             }
+        }
+    } else if (tab === 'library') {
+        if (librarySection) {
+            librarySection.classList.remove('hidden');
+            carregarBiblioteca();
         }
     }
 }
@@ -1823,4 +1978,478 @@ function showFinanceError(msg) {
     if (pendingContainer) pendingContainer.innerHTML = `<span style="color:#ef4444">${msg}</span>`;
     if (tableBody) tableBody.innerHTML = `<tr><td colspan="13" style="text-align:center; color:#ef4444;">${msg}</td></tr>`;
 }
+
+// ==========================================
+// SEÇÃO DE BIBLIOTECA - PAINEL ADMINISTRATIVO
+// ==========================================
+
+export async function carregarBiblioteca() {
+    if (!window.libraryAdminInitialized) {
+        window.libraryAdminInitialized = true;
+
+        const btnSubLoans = document.getElementById('btn-lib-subtab-loans');
+        const btnSubBooks = document.getElementById('btn-lib-subtab-books');
+        const panelLoans = document.getElementById('lib-content-loans');
+        const panelBooks = document.getElementById('lib-content-books');
+
+        if (btnSubLoans && btnSubBooks && panelLoans && panelBooks) {
+            btnSubLoans.addEventListener('click', () => {
+                btnSubLoans.classList.add('active');
+                btnSubBooks.classList.remove('active');
+                panelLoans.classList.remove('hidden');
+                panelBooks.classList.add('hidden');
+                renderLibLoans();
+            });
+
+            btnSubBooks.addEventListener('click', () => {
+                btnSubBooks.classList.add('active');
+                btnSubLoans.classList.remove('active');
+                panelBooks.classList.remove('hidden');
+                panelLoans.classList.add('hidden');
+                renderLibBooks();
+            });
+        }
+
+        const searchLoansInput = document.getElementById('lib-search-loans-input');
+        if (searchLoansInput) {
+            searchLoansInput.addEventListener('keyup', (e) => {
+                renderLibLoans(e.target.value);
+            });
+        }
+
+        const searchBooksInput = document.getElementById('lib-search-books-input');
+        if (searchBooksInput) {
+            searchBooksInput.addEventListener('keyup', (e) => {
+                renderLibBooks(e.target.value);
+            });
+        }
+
+        const btnAddBook = document.getElementById('btn-add-book');
+        if (btnAddBook) {
+            btnAddBook.addEventListener('click', () => {
+                document.getElementById('book-modal-title').innerText = "Cadastrar Livro";
+                document.getElementById('book-form-id').value = "";
+                document.getElementById('book-form-title').value = "";
+                document.getElementById('book-form-author').value = "";
+                document.getElementById('book-form-synopsis').value = "";
+                document.getElementById('book-form-cover').value = "";
+                document.getElementById('book-form-category').value = "";
+                document.getElementById('book-form-location').value = "";
+                document.getElementById('book-form-qty').value = "1";
+                document.getElementById('book-form-feedback').innerHTML = "";
+                openModalById('book-editor-modal');
+            });
+        }
+
+        const closeBookBtn = document.getElementById('close-book-editor');
+        if (closeBookBtn) {
+            closeBookBtn.addEventListener('click', () => {
+                closeModalById('book-editor-modal');
+            });
+        }
+
+        const btnSaveBook = document.getElementById('btn-save-book');
+        if (btnSaveBook) {
+            btnSaveBook.addEventListener('click', saveBookForm);
+        }
+    }
+
+    const pendingContainer = document.getElementById('lib-pending-loans-container');
+    const activeLoansBody = document.getElementById('lib-active-loans-body');
+    const booksTableBody = document.getElementById('lib-books-table-body');
+
+    if (pendingContainer) pendingContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9rem;">Carregando dados...</span>';
+    if (activeLoansBody) activeLoansBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Carregando...</td></tr>';
+    if (booksTableBody) booksTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Carregando...</td></tr>';
+
+    try {
+        const json = await apiFetch('getBooksData', { params: { email: window.currentUserEmail } });
+        if (json.status === 'success') {
+            window.adminLibraryData = {
+                books: json.books || [],
+                loans: json.loans || []
+            };
+
+            const btnSubLoans = document.getElementById('btn-lib-subtab-loans');
+            if (btnSubLoans && btnSubLoans.classList.contains('active')) {
+                renderLibLoans();
+            } else {
+                renderLibBooks();
+            }
+        } else {
+            alert("Erro ao buscar dados da biblioteca: " + json.message);
+        }
+    } catch (e) {
+        console.error("Erro ao carregar biblioteca:", e);
+        alert("Erro ao conectar com o servidor.");
+    }
+}
+
+function renderLibLoans(filterQuery = '') {
+    const pendingContainer = document.getElementById('lib-pending-loans-container');
+    const activeLoansBody = document.getElementById('lib-active-loans-body');
+
+    if (!window.adminLibraryData) return;
+
+    const query = filterQuery.toLowerCase().trim();
+    const loans = window.adminLibraryData.loans;
+
+    const pendingLoans = loans.filter(l => l.status === 'Solicitado');
+    if (pendingContainer) {
+        pendingContainer.innerHTML = '';
+        if (pendingLoans.length === 0) {
+            pendingContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem; font-style: italic;">Nenhuma retirada pendente no momento.</span>';
+        } else {
+            pendingLoans.forEach(loan => {
+                const book = window.adminLibraryData.books.find(b => b.id === loan.livroId);
+                const locationStr = book ? book.localizacao : 'Não especificado';
+                const row = document.createElement('div');
+                row.style.background = 'rgba(255, 255, 255, 0.015)';
+                row.style.border = '1px solid rgba(255, 255, 255, 0.05)';
+                row.style.borderRadius = '14px';
+                row.style.padding = '16px';
+                row.style.display = 'flex';
+                row.style.justifyContent = 'space-between';
+                row.style.alignItems = 'center';
+                row.style.flexWrap = 'wrap';
+                row.style.gap = '15px';
+
+                const reqDate = new Date(loan.dataSolicitacao).toLocaleDateString('pt-BR');
+
+                row.innerHTML = `
+                    <div style="flex: 1; min-width: 250px;">
+                        <h4 style="font-size: 1rem; color: #fff; margin: 0; font-weight: 700;">${loan.tituloLivro}</h4>
+                        <div style="margin-top: 6px; font-size: 0.85rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px;">
+                            <span>👤 Aluno: <strong style="color: #fff">${loan.nome}</strong> (${loan.email})</span>
+                            <span>📍 Localização Física: <strong style="color: var(--accent)">${locationStr}</strong></span>
+                            <span>📅 Solicitado em: ${reqDate}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button class="btn-confirm-pickup" data-loan-id="${loan.id}" style="padding: 10px 16px; font-size: 0.8rem; background: var(--primary); border-radius: 8px; font-weight: 600; cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.1);">
+                            Confirmar Retirada
+                        </button>
+                        <button class="btn-cancel-pickup" data-loan-id="${loan.id}" style="padding: 10px 16px; font-size: 0.8rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #f87171; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            Recusar/Cancelar
+                        </button>
+                    </div>
+                `;
+
+                pendingContainer.appendChild(row);
+            });
+        }
+    }
+
+    if (activeLoansBody) {
+        activeLoansBody.innerHTML = '';
+        const activeLoans = loans.filter(l => {
+            const matchesQuery = l.tituloLivro.toLowerCase().includes(query) || 
+                                 l.nome.toLowerCase().includes(query) || 
+                                 l.email.toLowerCase().includes(query);
+            return (l.status === 'Ativo' || l.status === 'Atrasado') && matchesQuery;
+        });
+
+        if (activeLoans.length === 0) {
+            activeLoansBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px 0;">Nenhum empréstimo ativo correspondente.</td></tr>';
+        } else {
+            activeLoans.forEach(loan => {
+                const tr = document.createElement('tr');
+                tr.style.background = 'rgba(255, 255, 255, 0.01)';
+
+                const pickupDate = loan.dataRetirada ? new Date(loan.dataRetirada).toLocaleDateString('pt-BR') : '-';
+                const dueDate = loan.dataDevolucaoPrevista ? new Date(loan.dataDevolucaoPrevista).toLocaleDateString('pt-BR') : '-';
+
+                let statusBadge = '';
+                if (loan.status === 'Atrasado') {
+                    statusBadge = `<span class="badge-loan badge-loan-overdue">Atrasado</span>`;
+                } else {
+                    statusBadge = `<span class="badge-loan badge-loan-active">Ativo</span>`;
+                }
+
+                tr.innerHTML = `
+                    <td data-label="Livro" style="font-weight:600; color:#fff;">${loan.tituloLivro}</td>
+                    <td data-label="Médium">${loan.nome}</td>
+                    <td data-label="E-mail">${loan.email}</td>
+                    <td data-label="Data Retirada">${pickupDate}</td>
+                    <td data-label="Prazo Limite" style="font-weight:600; color:${loan.status === 'Atrasado' ? '#f87171' : '#fff'}">${dueDate}</td>
+                    <td data-label="Status">${statusBadge}</td>
+                    <td data-label="Ações" style="text-align: center;">
+                        <button class="btn-confirm-return" data-loan-id="${loan.id}" style="padding: 8px 12px; font-size: 0.75rem; background: var(--success); border-radius: 8px; font-weight: 600; cursor: pointer; border: none; color: #fff;">
+                            Devolvido ✓
+                        </button>
+                    </td>
+                `;
+
+                activeLoansBody.appendChild(tr);
+            });
+        }
+    }
+
+    document.querySelectorAll('.btn-confirm-pickup').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const loanId = e.currentTarget.getAttribute('data-loan-id');
+            if (confirm("Confirma que o médium está retirando o livro físico e deseja ativar o empréstimo de 15 dias?")) {
+                btn.disabled = true;
+                btn.innerText = 'Ativando...';
+                await confirmPickup(loanId);
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-cancel-pickup').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const loanId = e.currentTarget.getAttribute('data-loan-id');
+            if (confirm("Deseja realmente recusar e cancelar esta solicitação? O livro voltará ao estoque.")) {
+                btn.disabled = true;
+                btn.innerText = 'Cancelando...';
+                await cancelPickup(loanId);
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-confirm-return').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const loanId = e.currentTarget.getAttribute('data-loan-id');
+            if (confirm("Confirma que o livro foi devolvido fisicamente ao terreiro?")) {
+                btn.disabled = true;
+                btn.innerText = 'Processando...';
+                await confirmReturn(loanId);
+            }
+        });
+    });
+}
+
+function renderLibBooks(filterQuery = '') {
+    const booksTableBody = document.getElementById('lib-books-table-body');
+    if (!booksTableBody || !window.adminLibraryData) return;
+
+    booksTableBody.innerHTML = '';
+    const query = filterQuery.toLowerCase().trim();
+    const books = window.adminLibraryData.books.filter(b => {
+        return b.titulo.toLowerCase().includes(query) || b.autor.toLowerCase().includes(query);
+    });
+
+    if (books.length === 0) {
+        booksTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px 0;">Nenhum livro cadastrado correspondente.</td></tr>';
+        return;
+    }
+
+    books.forEach(book => {
+        const tr = document.createElement('tr');
+        tr.style.background = 'rgba(255, 255, 255, 0.01)';
+
+        let coverCell = '';
+        if (book.capaUrl && book.capaUrl.startsWith('http')) {
+            coverCell = `<img src="${book.capaUrl}" style="width: 40px; height: 55px; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">`;
+        } else {
+            coverCell = `
+                <div class="book-cover-css" style="width: 35px; height: 50px; border-radius: 2px 5px 5px 2px; padding: 2px; overflow: hidden; border-left: 2px solid rgba(0,0,0,0.25); background: linear-gradient(135deg, #1e1b4b 0%, #311042 100%);">
+                    <div style="font-size: 0.35rem; font-weight: 700; color: #fff; text-align: center; line-height: 1.1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-family: sans-serif;">${book.titulo}</div>
+                </div>
+            `;
+        }
+
+        tr.innerHTML = `
+            <td data-label="Capa" style="width: 60px;">${coverCell}</td>
+            <td data-label="Título" style="font-weight:600; color:#fff;">${book.titulo}</td>
+            <td data-label="Autor">${book.autor || 'Não informado'}</td>
+            <td data-label="Categoria" style="text-transform: uppercase; font-size: 0.8rem; color: var(--text-muted);">${book.categoria || 'Geral'}</td>
+            <td data-label="Localização Física">${book.localizacao || 'Não cadastrada'}</td>
+            <td data-label="Qtd Total" style="text-align: center; font-weight: 500;">${book.qtdTotal}</td>
+            <td data-label="Disponível" style="text-align: center; font-weight: 700; color:${book.qtdDisponivel > 0 ? '#34d399' : '#f87171'}">${book.qtdDisponivel}</td>
+            <td data-label="Ações" style="text-align: center;">
+                <div style="display: flex; gap: 8px; justify-content: center;">
+                    <button class="btn-edit-book" data-id="${book.id}" style="padding: 6px 12px; font-size: 0.75rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.2); color: var(--accent); border-radius: 8px; cursor: pointer; font-weight: 600;">
+                        Editar
+                    </button>
+                    <button class="btn-delete-book" data-id="${book.id}" style="padding: 6px 12px; font-size: 0.75rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #f87171; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                        Excluir
+                    </button>
+                </div>
+            </td>
+        `;
+
+        booksTableBody.appendChild(tr);
+    });
+
+    document.querySelectorAll('.btn-edit-book').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const id = e.currentTarget.getAttribute('data-id');
+            const book = window.adminLibraryData.books.find(b => b.id === id);
+            if (book) {
+                document.getElementById('book-modal-title').innerText = "Editar Livro";
+                document.getElementById('book-form-id').value = book.id;
+                document.getElementById('book-form-title').value = book.titulo;
+                document.getElementById('book-form-author').value = book.autor || '';
+                document.getElementById('book-form-synopsis').value = book.sinopse || '';
+                document.getElementById('book-form-cover').value = book.capaUrl || '';
+                document.getElementById('book-form-category').value = book.categoria || 'Geral';
+                document.getElementById('book-form-location').value = book.localizacao || '';
+                document.getElementById('book-form-qty').value = book.qtdTotal;
+                document.getElementById('book-form-feedback').innerHTML = "";
+                openModalById('book-editor-modal');
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-delete-book').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const id = e.currentTarget.getAttribute('data-id');
+            if (confirm("Deseja realmente excluir este livro do acervo? Os empréstimos vinculados continuarão registrados, mas o livro sairá da vitrine.")) {
+                btn.disabled = true;
+                btn.innerText = 'Excluindo...';
+                await deleteBook(id);
+            }
+        });
+    });
+}
+
+async function saveBookForm() {
+    const id = document.getElementById('book-form-id').value;
+    const titulo = document.getElementById('book-form-title').value.trim();
+    const autor = document.getElementById('book-form-author').value.trim();
+    const sinopse = document.getElementById('book-form-synopsis').value.trim();
+    const capaUrl = document.getElementById('book-form-cover').value.trim();
+    const categoria = document.getElementById('book-form-category').value.trim() || 'Geral';
+    const localizacao = document.getElementById('book-form-location').value.trim();
+    const qtdTotal = parseInt(document.getElementById('book-form-qty').value.trim()) || 1;
+    const feedback = document.getElementById('book-form-feedback');
+
+    if (!titulo || !localizacao) {
+        feedback.innerHTML = '<span style="color: #ef4444">Título e Localização Física são obrigatórios.</span>';
+        return;
+    }
+
+    const btn = document.getElementById('btn-save-book');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = 'Gravando...';
+    feedback.innerHTML = '';
+
+    try {
+        const res = await apiFetch('saveBook', {
+            method: 'POST',
+            data: {
+                id: id || null,
+                titulo,
+                autor,
+                sinopse,
+                capaUrl,
+                categoria,
+                localizacao,
+                qtdTotal,
+                adminEmail: window.currentUserEmail
+            }
+        });
+
+        if (res.status === 'success') {
+            feedback.innerHTML = `<span style="color: var(--success)">${res.message}</span>`;
+            setTimeout(() => {
+                closeModalById('book-editor-modal');
+                carregarBiblioteca();
+            }, 1500);
+        } else {
+            feedback.innerHTML = `<span style="color: #ef4444">Erro: ${res.message}</span>`;
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    } catch (err) {
+        feedback.innerHTML = '<span style="color: #ef4444">Erro na conexão com o servidor.</span>';
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function deleteBook(id) {
+    try {
+        const res = await apiFetch('deleteBook', {
+            method: 'POST',
+            data: {
+                id,
+                adminEmail: window.currentUserEmail
+            }
+        });
+
+        if (res.status === 'success') {
+            alert(res.message);
+            carregarBiblioteca();
+        } else {
+            alert("Erro: " + res.message);
+            carregarBiblioteca();
+        }
+    } catch (err) {
+        alert("Erro na conexão com o servidor.");
+        carregarBiblioteca();
+    }
+}
+
+async function confirmPickup(loanId) {
+    try {
+        const res = await apiFetch('confirmBookPickup', {
+            method: 'POST',
+            data: {
+                loanId,
+                adminEmail: window.currentUserEmail
+            }
+        });
+
+        if (res.status === 'success') {
+            alert(res.message);
+            carregarBiblioteca();
+        } else {
+            alert("Erro: " + res.message);
+            carregarBiblioteca();
+        }
+    } catch (err) {
+        alert("Erro ao conectar com o servidor.");
+        carregarBiblioteca();
+    }
+}
+
+async function cancelPickup(loanId) {
+    try {
+        const res = await apiFetch('cancelBookLoanRequest', {
+            method: 'POST',
+            data: { loanId }
+        });
+
+        if (res.status === 'success') {
+            alert("Solicitação cancelada com sucesso!");
+            carregarBiblioteca();
+        } else {
+            alert("Erro: " + res.message);
+            carregarBiblioteca();
+        }
+    } catch (err) {
+        alert("Erro ao conectar com o servidor.");
+        carregarBiblioteca();
+    }
+}
+
+async function confirmReturn(loanId) {
+    try {
+        const res = await apiFetch('confirmBookReturn', {
+            method: 'POST',
+            data: {
+                loanId,
+                adminEmail: window.currentUserEmail
+            }
+        });
+
+        if (res.status === 'success') {
+            alert(res.message);
+            carregarBiblioteca();
+        } else {
+            alert("Erro: " + res.message);
+            carregarBiblioteca();
+        }
+    } catch (err) {
+        alert("Erro ao conectar com o servidor.");
+        carregarBiblioteca();
+    }
+}
+
+window.carregarBiblioteca = carregarBiblioteca;
+window.renderLibLoans = renderLibLoans;
+window.renderLibBooks = renderLibBooks;
 

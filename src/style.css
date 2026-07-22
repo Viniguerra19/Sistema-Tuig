@@ -662,3 +662,258 @@ button:active {
     overflow-x: hidden !important;
   }
 }
+
+/* --- SISTEMA DE BIBLIOTECA (VITRINE E EMPRÉSTIMOS) --- */
+.books-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.book-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  position: relative;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.book-card:hover {
+  transform: translateY(-5px);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: var(--premium-shadow);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.book-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  opacity: 0.7;
+}
+
+.book-cover-container {
+  height: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  position: relative;
+  padding: 10px;
+}
+
+.book-cover-img {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.3s;
+}
+
+.book-card:hover .book-cover-img {
+  transform: scale(1.03);
+}
+
+/* Capa de Livro em CSS Premium (Fallback se não houver CapaURL) */
+.book-cover-css {
+  width: 120px;
+  height: 170px;
+  border-radius: 4px 10px 10px 4px;
+  background: linear-gradient(135deg, #1e1b4b 0%, #311042 100%);
+  box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.4), 
+              inset 3px 0 3px rgba(255, 255, 255, 0.08), 
+              inset -3px 0 3px rgba(0, 0, 0, 0.3);
+  border-left: 4px solid rgba(0, 0, 0, 0.25);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.book-cover-css::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 15px;
+  width: 12px;
+  height: 40px;
+  background: #fbbf24;
+  border-radius: 0 0 2px 2px;
+  box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+  opacity: 0.85;
+}
+
+.book-cover-css-title {
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  word-break: break-word;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 15px;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
+  font-family: 'Outfit', 'Inter', sans-serif;
+}
+
+.book-cover-css-author {
+  color: #94a3b8;
+  font-size: 0.6rem;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 5px;
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.book-info-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.book-info-author {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 2px 0 8px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.book-info-detail {
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-bottom: 4px;
+}
+
+.book-info-detail strong {
+  color: #fff;
+  font-weight: 500;
+}
+
+.book-synopsis-toggle {
+  background: transparent;
+  border: none;
+  padding: 0 !important;
+  color: var(--accent) !important;
+  font-size: 0.8rem !important;
+  cursor: pointer;
+  text-decoration: underline;
+  display: inline-block;
+  width: auto !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+  margin-bottom: 2px;
+  border: none !important;
+}
+
+.book-synopsis-toggle:hover {
+  background: transparent !important;
+  color: #fff !important;
+}
+
+.book-synopsis-text {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.05);
+  padding-top: 6px;
+  display: none;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+/* Badges de Empréstimos */
+.badge-loan {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+}
+
+.badge-loan-requested {
+  background: rgba(245, 158, 11, 0.08);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.badge-loan-active {
+  background: rgba(59, 130, 246, 0.08);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.badge-loan-overdue {
+  background: rgba(239, 68, 68, 0.08);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+  animation: pulse-border-red-loan 2s infinite;
+}
+
+.badge-loan-returned {
+  background: rgba(16, 185, 129, 0.08);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.badge-loan-cancelled {
+  background: rgba(156, 163, 175, 0.08);
+  color: #9ca3af;
+  border-color: rgba(156, 163, 175, 0.2);
+}
+
+@keyframes pulse-border-red-loan {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
