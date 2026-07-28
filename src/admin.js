@@ -25,8 +25,8 @@ export async function renderAdminDashboard(email) {
         <nav class="tab-container" style="display: flex; gap: 8px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 18px; margin-bottom: 40px; border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; justify-content: center;">
             ${isMaster ? `<button id="btn-tab-dashboard" class="tab-button" data-tab="dashboard" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Painel Gerencial</button>` : ''}
             ${hasFullAdminAccess ? `<button id="btn-tab-admin" class="tab-button active" data-tab="admin" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Gestão de Alunos</button>` : ''}
-            ${hasFullAdminAccess ? `<button id="btn-tab-finance" class="tab-button" data-tab="finance" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Financeiro</button>` : ''}
-            ${hasFullAdminAccess ? `<button id="btn-tab-library" class="tab-button" data-tab="library" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Biblioteca</button>` : ''}
+            ${isMaster ? `<button id="btn-tab-finance" class="tab-button" data-tab="finance" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Financeiro</button>` : ''}
+            ${isMaster ? `<button id="btn-tab-library" class="tab-button" data-tab="library" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Biblioteca</button>` : ''}
             ${hasReportAccess ? `<button id="btn-tab-reports" class="tab-button ${!hasFullAdminAccess ? 'active' : ''}" data-tab="reports" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Relatórios de Rituais</button>` : ''}
             <button id="btn-tab-student" class="tab-button" data-tab="student" style="flex: 1 1 auto; padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; font-weight: 600; letter-spacing: -0.01em;">Minha Ficha</button>
         </nav>
@@ -987,10 +987,12 @@ function switchTab(tab) {
     if (financeSection) financeSection.classList.add('hidden');
     if (librarySection) librarySection.classList.add('hidden');
 
+    const isMaster = (localStorage.getItem('tuig_role') || 'admin') === 'master_admin';
+
     if (tab === 'admin') {
         adminSection.classList.remove('hidden');
     } else if (tab === 'finance') {
-        if (financeSection) {
+        if (financeSection && isMaster) {
             financeSection.classList.remove('hidden');
             carregarFinanceiro();
         }
@@ -1002,9 +1004,11 @@ function switchTab(tab) {
             renderStudentDashboard(window.currentUserEmail, 'student-container');
         }
     } else if (tab === 'dashboard') {
-        dashboardSection.classList.remove('hidden');
-        if (!window.dashboardCarregado) {
-            carregarDashboard();
+        if (isMaster) {
+            dashboardSection.classList.remove('hidden');
+            if (!window.dashboardCarregado) {
+                carregarDashboard();
+            }
         }
     } else if (tab === 'reports') {
         if (reportsSection) {
@@ -1014,7 +1018,7 @@ function switchTab(tab) {
             }
         }
     } else if (tab === 'library') {
-        if (librarySection) {
+        if (librarySection && isMaster) {
             librarySection.classList.remove('hidden');
             carregarBiblioteca();
         }
