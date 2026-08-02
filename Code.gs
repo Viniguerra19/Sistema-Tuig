@@ -47,6 +47,8 @@ function doGet(e) {
          return handleGetDashboardStats();
       case 'getBulkPresenceList':
          return handleGetBulkPresenceList(e.parameter.date, e.parameter.turma);
+      case 'getBulkPresenceListByMedium':
+         return handleGetBulkPresenceListByMedium(e.parameter.mediumEmail);
       case 'getRitualsReport':
          return handleGetRitualsReport(e.parameter.email);
       case 'getFinancialReport':
@@ -87,6 +89,8 @@ function doPost(e) {
         return handleSendJustification(payload.data);
       case 'saveBulkPresence':
         return handleSaveBulkPresence(payload.data);
+      case 'saveBulkPresenceByMedium':
+        return handleSaveBulkPresenceByMedium(payload.data);
       case 'uploadReceipt':
         return handleUploadReceipt(payload.data);
       case 'verifyPayment':
@@ -304,9 +308,196 @@ function handleSaveBulkPresence(data) {
    }
 }
 
+function handleGetBulkPresenceListByMedium(mediumEmail) {
+    if (!mediumEmail) {
+        return createJsonResponse({ status: "error", message: "E-mail do médium é obrigatório." });
+    }
+
+    const searchEmail = mediumEmail.toLowerCase().trim();
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    // 1. Dados do Usuário
+    const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
+    const userData = userSheet ? userSheet.getDataRange().getValues() : [];
+    let userObj = null;
+    for (let i = 1; i < userData.length; i++) {
+        const uEmail = userData[i][0].toString().toLowerCase().trim();
+        if (uEmail === searchEmail) {
+            userObj = {
+                email: uEmail,
+                nome: userData[i][1],
+                turma: userData[i][5] ? userData[i][5].toString() : ""
+            };
+            break;
+        }
+    }
+
+    if (!userObj) {
+        return createJsonResponse({ status: "error", message: "Médium não encontrado." });
+    }
+
+    // 2. Presenças já registradas para o médium
+    const presenceSheet = ss.getSheetByName(NOME_ABA_PRESENCAS);
+    const presencesData = presenceSheet ? presenceSheet.getDataRange().getValues() : [];
+    const presencesMap = new Map();
+
+    for (let i = 1; i < presencesData.length; i++) {
+        const pDateRaw = presencesData[i][0];
+        if (!pDateRaw) continue;
+        const pDate = new Date(pDateRaw);
+        if (isNaN(pDate.getTime())) continue;
+
+        let adjustedPDate = getAdjustedDate(pDate);
+        const pEmail = presencesData[i][1].toString().toLowerCase().trim();
+        
+        if (pEmail === searchEmail) {
+            const dateStr = adjustedPDate.toLocaleDateString("pt-BR");
+            presencesMap.set(dateStr, {
+                dateStr: dateStr,
+                rawDate: adjustedPDate
+            });
+        }
+    }
+
+    // 3. Datas da Agenda para a turma do médium
+    const agendaSheet = ss.getSheetByName(NOME_ABA_AGENDA);
+    const datesMap = new Map();
+    const turmaNorm = userObj.turma.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    if (agendaSheet) {
+        const agendaData = agendaSheet.getDataRange().getValues();
+        const hojeTime = new Date().getTime();
+
+        for (let i = 1; i < agendaData.length; i++) {
+            if (agendaData[i].length < 1) continue;
+            const evtDate = new Date(agendaData[i][0]);
+            if (isNaN(evtDate.getTime())) continue;
+
+            let evtTurma = agendaData[i][2] ? agendaData[i][2].toString().toLowerCase().trim() : "";
+            const dateStr = evtDate.toLocaleDateString("pt-BR");
+
+            let applies = false;
+            if (!evtTurma || evtTurma.includes("geral") || evtTurma.includes("ambos") || evtTurma.includes("todos")) {
+                applies = true;
+            } else if (turmaNorm.includes("sexta") && evtTurma.includes("sexta")) {
+                applies = true;
+            } else if (turmaNorm.includes("sabado") && evtTurma.includes("sabado")) {
+                applies = true;
+            }
+
+            if (applies && evtDate.getTime() <= hojeTime + 86400000) {
+                const isPresent = presencesMap.has(dateStr);
+                const yyyy = evtDate.getFullYear();
+                const mm = String(evtDate.getMonth() + 1).padStart(2, '0');
+                const dd = String(evtDate.getDate()).padStart(2, '0');
+                const isoDate = `${yyyy}-${mm}-${dd}`;
+
+                datesMap.set(dateStr, {
+                    dateStr: dateStr,
+                    isoDate: isoDate,
+                    rawTime: evtDate.getTime(),
+                    turma: evtTurma || "Geral",
+                    isPresent: isPresent,
+                    originalPresent: isPresent
+                });
+            }
+        }
+    }
+
+    // Incluir também datas de presenças já registradas mesmo se não estiverem na Agenda
+    presencesMap.forEach((val, dateStr) => {
+        if (!datesMap.has(dateStr)) {
+            const pDate = val.rawDate;
+            const yyyy = pDate.getFullYear();
+            const mm = String(pDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(pDate.getDate()).padStart(2, '0');
+            const isoDate = `${yyyy}-${mm}-${dd}`;
+
+            datesMap.set(dateStr, {
+                dateStr: dateStr,
+                isoDate: isoDate,
+                rawTime: pDate.getTime(),
+                turma: "Registrado",
+                isPresent: true,
+                originalPresent: true
+            });
+        }
+    });
+
+    const datesList = Array.from(datesMap.values()).sort((a, b) => b.rawTime - a.rawTime);
+
+    return createJsonResponse({
+        status: "success",
+        data: {
+            medium: userObj,
+            dates: datesList
+        }
+    });
+}
+
+function handleSaveBulkPresenceByMedium(data) {
+    if (!data || !data.mediumEmail || !data.adminEmail || !data.presences || !Array.isArray(data.presences)) {
+        return createJsonResponse({ status: "error", message: "Dados incompletos." });
+    }
+
+    try {
+        const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+        const presenceSheet = ss.getSheetByName(NOME_ABA_PRESENCAS);
+        if (!presenceSheet) return createJsonResponse({ status: "error", message: "Aba de presenças não encontrada." });
+
+        const presencesData = presenceSheet.getDataRange().getValues();
+        const sEmail = data.mediumEmail.toLowerCase().trim();
+
+        const existingDates = new Set();
+        for (let i = 1; i < presencesData.length; i++) {
+            const pEmail = presencesData[i][1].toString().toLowerCase().trim();
+            if (pEmail === sEmail) {
+                const pDate = getAdjustedDate(new Date(presencesData[i][0]));
+                existingDates.add(pDate.toLocaleDateString("pt-BR"));
+            }
+        }
+
+        let rowsAdded = 0;
+        for (const item of data.presences) {
+            let dateObj;
+            if (item.isoDate) {
+                const partes = item.isoDate.split('-');
+                dateObj = new Date(partes[0], partes[1] - 1, partes[2]);
+            } else if (item.dateStr) {
+                const partes = item.dateStr.split('/');
+                dateObj = new Date(partes[2], partes[1] - 1, partes[0]);
+            } else {
+                continue;
+            }
+
+            dateObj.setHours(12, 0, 0, 0);
+            const dateStrBR = dateObj.toLocaleDateString("pt-BR");
+
+            if (!existingDates.has(dateStrBR)) {
+                presenceSheet.appendRow([
+                    dateObj,
+                    sEmail,
+                    data.mediumNome || sEmail,
+                    "Admin: " + data.adminEmail,
+                    "Abono em Massa / Chamada por Médium",
+                    "DEV-ADMIN"
+                ]);
+                rowsAdded++;
+                existingDates.add(dateStrBR);
+            }
+        }
+
+        return createJsonResponse({
+            status: "success",
+            message: `Foram registradas ${rowsAdded} novas presenças para ${data.mediumNome || sEmail}!`
+        });
+    } catch (e) {
+        return createJsonResponse({ status: "error", message: "Erro ao salvar presenças por médium: " + e.toString() });
+    }
+}
+
 // ==========================================
 // LÓGICA DE NEGÓCIO (Reaproveitada)
-// ==========================================
 
 function getUserRole(email) {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(NOME_ABA_USUARIOS);

@@ -520,33 +520,68 @@ export async function renderAdminDashboard(email) {
     if (!document.getElementById('bulk-presence-modal')) {
         modalsContainer.insertAdjacentHTML('beforeend', `
             <div id="bulk-presence-modal" class="modal">
-                <div class="modal-content" style="max-width: 600px; width: 100%;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                <div class="modal-content" style="max-width: 650px; width: 100%;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                         <h2 style="margin:0; font-size:1.5rem; font-weight:800; letter-spacing:-0.03em;">Chamada em Massa</h2>
-                        <span id="close-bulk-presence" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1;">&times;</span>
+                        <span id="close-bulk-presence" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1; cursor:pointer;">&times;</span>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                        <div>
-                            <label style="display:block; margin-bottom:6px; font-size:0.85rem; color:var(--text-muted);">Data</label>
-                            <input type="date" id="bulk-date" style="width:100%; padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; outline:none;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                    <!-- Seletor de Modo -->
+                    <div style="display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08);">
+                        <button id="btn-tab-bulk-date" class="tab-button active" style="flex: 1; padding: 10px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;">🗓️ Por Data / Turma</button>
+                        <button id="btn-tab-bulk-medium" class="tab-button" style="flex: 1; padding: 10px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;">👤 Por Médium</button>
+                    </div>
+
+                    <!-- Modo 1: Por Data / Turma -->
+                    <div id="bulk-mode-date">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                            <div>
+                                <label style="display:block; margin-bottom:6px; font-size:0.85rem; color:var(--text-muted);">Data</label>
+                                <input type="date" id="bulk-date" style="width:100%; padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; outline:none;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                            </div>
+                            <div>
+                                <label style="display:block; margin-bottom:6px; font-size:0.85rem; color:var(--text-muted);">Turma</label>
+                                <select id="bulk-turma" style="width:100%; padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; outline:none;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                                    <option value="sexta">Sexta-feira</option>
+                                    <option value="sabado">Sábado</option>
+                                    <option value="geral">Gira Geral</option>
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label style="display:block; margin-bottom:6px; font-size:0.85rem; color:var(--text-muted);">Turma</label>
-                            <select id="bulk-turma" style="width:100%; padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; outline:none;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
-                                <option value="sexta">Sexta-feira</option>
-                                <option value="sabado">Sábado</option>
-                                <option value="geral">Gira Geral</option>
+                        
+                        <button id="btn-load-bulk" style="width:100%; padding:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#fff; font-weight:600; cursor:pointer; margin-bottom: 20px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+                            Carregar Lista de Médiuns
+                        </button>
+                    </div>
+
+                    <!-- Modo 2: Por Médium -->
+                    <div id="bulk-mode-medium" style="display:none;">
+                        <div style="margin-bottom: 20px;">
+                            <label style="display:block; margin-bottom:6px; font-size:0.85rem; color:var(--text-muted);">Selecione o Médium</label>
+                            <select id="bulk-medium-select" style="width:100%; padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; outline:none;">
+                                <option value="">Selecione um médium...</option>
                             </select>
                         </div>
+
+                        <button id="btn-load-bulk-medium" style="width:100%; padding:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#fff; font-weight:600; cursor:pointer; margin-bottom: 20px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+                            Carregar Datas do Médium
+                        </button>
                     </div>
                     
-                    <button id="btn-load-bulk" style="width:100%; padding:12px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#fff; font-weight:600; cursor:pointer; margin-bottom: 20px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
-                        Carregar Lista
-                    </button>
-                    
-                    <div id="bulk-list-container" style="max-height: 40vh; overflow-y: auto; margin-bottom: 20px; display:flex; flex-direction:column; gap:8px;">
-                        <div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Selecione a data/turma e clique em Carregar.</div>
+                    <!-- Container da Lista (reaproveitado para ambos os modos) -->
+                    <div id="bulk-list-container" style="max-height: 40vh; overflow-y: auto; margin-bottom: 15px; display:flex; flex-direction:column; gap:8px;">
+                        <div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Selecione as opções acima e clique em Carregar.</div>
+                    </div>
+
+                    <!-- Área para Adicionar Data Específica (no modo por médium) -->
+                    <div id="bulk-medium-add-date-container" style="display:none; padding:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:12px; margin-bottom:20px;">
+                        <label style="display:block; margin-bottom:8px; font-size:0.8rem; color:var(--text-muted); font-weight:600;">➕ Adicionar Outra Data para este Médium:</label>
+                        <div style="display:flex; gap:10px;">
+                            <input type="date" id="bulk-custom-date" style="flex:1; padding:8px 12px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; font-size:0.85rem; outline:none;">
+                            <button id="btn-add-custom-date" style="padding:8px 16px; background:rgba(16, 185, 129, 0.15); border:1px solid rgba(16, 185, 129, 0.3); color:#34d399; font-weight:600; border-radius:8px; cursor:pointer; font-size:0.85rem;">
+                                Adicionar Data
+                            </button>
+                        </div>
                     </div>
 
                     <div id="bulk-feedback" style="text-align:center; margin-bottom: 15px; font-size:0.9rem;"></div>
@@ -641,13 +676,54 @@ export async function renderAdminDashboard(email) {
     if (btnBulk) {
         btnBulk.addEventListener('click', () => {
             const today = new Date();
-            // Pega data local YYYY-MM-DD
             const todayStr = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
             document.getElementById('bulk-date').value = todayStr;
+            document.getElementById('bulk-list-container').innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Selecione as opções acima e clique em Carregar.</div>';
+            document.getElementById('btn-save-bulk').style.display = 'none';
+            const addDateCont = document.getElementById('bulk-medium-add-date-container');
+            if (addDateCont) addDateCont.style.display = 'none';
+            document.getElementById('bulk-feedback').innerHTML = '';
+            
+            // Ativa a aba Por Data por padrão
+            window.currentBulkMode = 'date';
+            const tabDate = document.getElementById('btn-tab-bulk-date');
+            const tabMedium = document.getElementById('btn-tab-bulk-medium');
+            if (tabDate && tabMedium) {
+                tabDate.classList.add('active');
+                tabMedium.classList.remove('active');
+                document.getElementById('bulk-mode-date').style.display = 'block';
+                document.getElementById('bulk-mode-medium').style.display = 'none';
+            }
+            openModalById('bulk-presence-modal');
+        });
+    }
+
+    const tabDate = document.getElementById('btn-tab-bulk-date');
+    const tabMedium = document.getElementById('btn-tab-bulk-medium');
+    if (tabDate && tabMedium) {
+        tabDate.addEventListener('click', () => {
+            window.currentBulkMode = 'date';
+            tabDate.classList.add('active');
+            tabMedium.classList.remove('active');
+            document.getElementById('bulk-mode-date').style.display = 'block';
+            document.getElementById('bulk-mode-medium').style.display = 'none';
+            document.getElementById('bulk-medium-add-date-container').style.display = 'none';
             document.getElementById('bulk-list-container').innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Selecione a data/turma e clique em Carregar.</div>';
             document.getElementById('btn-save-bulk').style.display = 'none';
             document.getElementById('bulk-feedback').innerHTML = '';
-            openModalById('bulk-presence-modal');
+        });
+
+        tabMedium.addEventListener('click', () => {
+            window.currentBulkMode = 'medium';
+            tabMedium.classList.add('active');
+            tabDate.classList.remove('active');
+            document.getElementById('bulk-mode-medium').style.display = 'block';
+            document.getElementById('bulk-mode-date').style.display = 'none';
+            document.getElementById('bulk-medium-add-date-container').style.display = 'none';
+            document.getElementById('bulk-list-container').innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Selecione um médium e clique em Carregar Datas.</div>';
+            document.getElementById('btn-save-bulk').style.display = 'none';
+            document.getElementById('bulk-feedback').innerHTML = '';
+            populateBulkMediumSelect();
         });
     }
 
@@ -659,6 +735,16 @@ export async function renderAdminDashboard(email) {
     const btnLoadBulk = document.getElementById('btn-load-bulk');
     if (btnLoadBulk) {
         btnLoadBulk.addEventListener('click', loadBulkPresenceList);
+    }
+
+    const btnLoadBulkMedium = document.getElementById('btn-load-bulk-medium');
+    if (btnLoadBulkMedium) {
+        btnLoadBulkMedium.addEventListener('click', loadBulkPresenceListByMedium);
+    }
+
+    const btnAddCustomDate = document.getElementById('btn-add-custom-date');
+    if (btnAddCustomDate) {
+        btnAddCustomDate.addEventListener('click', addCustomDateToMediumList);
     }
 
     const btnSaveBulk = document.getElementById('btn-save-bulk');
@@ -765,18 +851,29 @@ export async function renderAdminDashboard(email) {
         bulkListContainer.addEventListener('click', (e) => {
             const btn = e.target.closest('.toggle-presence');
             if (btn) {
-                const idx = btn.getAttribute('data-idx');
-                const u = window.currentBulkList[idx];
-                
-                // Só permite alternar se não estava presente originalmente
-                if (u.originalPresent) {
-                    btn.style.transform = 'scale(0.95)';
-                    setTimeout(() => btn.style.transform = 'scale(1)', 150);
-                    return;
+                const idx = parseInt(btn.getAttribute('data-idx'));
+
+                if (window.currentBulkMode === 'medium') {
+                    const d = (window.currentBulkMediumDates || [])[idx];
+                    if (!d) return;
+                    if (d.originalPresent) {
+                        btn.style.transform = 'scale(0.95)';
+                        setTimeout(() => btn.style.transform = 'scale(1)', 150);
+                        return;
+                    }
+                    d.isPresent = !d.isPresent;
+                    renderBulkListByMedium(window.currentBulkMediumDates);
+                } else {
+                    const u = (window.currentBulkList || [])[idx];
+                    if (!u) return;
+                    if (u.originalPresent) {
+                        btn.style.transform = 'scale(0.95)';
+                        setTimeout(() => btn.style.transform = 'scale(1)', 150);
+                        return;
+                    }
+                    u.isPresent = !u.isPresent;
+                    renderBulkList(window.currentBulkList);
                 }
-                
-                u.isPresent = !u.isPresent;
-                renderBulkList(window.currentBulkList); // Re-renderiza para atualizar as cores
             }
         });
     }
@@ -1379,14 +1476,197 @@ function renderBulkList(list) {
     container.innerHTML = html;
 }
 
+function populateBulkMediumSelect() {
+    const select = document.getElementById('bulk-medium-select');
+    if (!select) return;
+    select.innerHTML = '<option value="">Selecione um médium...</option>';
+
+    const users = (window.allUsers || []).slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    users.forEach(u => {
+        if (!u.email) return;
+        const opt = document.createElement('option');
+        opt.value = u.email;
+        opt.textContent = `${u.nome} (${u.email}) - ${u.turma || 'Sem turma'}`;
+        select.appendChild(opt);
+    });
+}
+
+async function loadBulkPresenceListByMedium() {
+    const mediumSelect = document.getElementById('bulk-medium-select');
+    const mediumEmail = mediumSelect ? mediumSelect.value : '';
+    const container = document.getElementById('bulk-list-container');
+    const btnSave = document.getElementById('btn-save-bulk');
+    const feedback = document.getElementById('bulk-feedback');
+    const btnLoad = document.getElementById('btn-load-bulk-medium');
+    const addDateContainer = document.getElementById('bulk-medium-add-date-container');
+
+    if (!mediumEmail) {
+        feedback.innerHTML = '<span style="color:#ef4444">Selecione um médium.</span>';
+        return;
+    }
+
+    feedback.innerHTML = '';
+    btnLoad.innerText = 'Carregando...';
+    btnLoad.disabled = true;
+    container.innerHTML = '<div class="loader active"></div>';
+    btnSave.style.display = 'none';
+    if (addDateContainer) addDateContainer.style.display = 'none';
+
+    try {
+        const json = await apiFetch('getBulkPresenceListByMedium', { params: { mediumEmail } });
+
+        if (json.status === "success" && json.data) {
+            window.currentBulkMedium = json.data.medium;
+            window.currentBulkMediumDates = json.data.dates || [];
+
+            if (window.currentBulkMediumDates.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Nenhuma data de gira encontrada para este médium. Você pode adicionar datas manualmente abaixo.</div>';
+            } else {
+                renderBulkListByMedium(window.currentBulkMediumDates);
+            }
+
+            if (addDateContainer) addDateContainer.style.display = 'block';
+            btnSave.style.display = 'block';
+        } else {
+            container.innerHTML = `<div style="color:#ef4444; text-align:center;">${json.message || 'Erro ao carregar datas.'}</div>`;
+        }
+    } catch (e) {
+        container.innerHTML = `<div style="color:#ef4444; text-align:center;">Erro de conexão com o servidor.</div>`;
+    } finally {
+        btnLoad.innerText = 'Carregar Datas do Médium';
+        btnLoad.disabled = false;
+    }
+}
+
+function renderBulkListByMedium(dates) {
+    const container = document.getElementById('bulk-list-container');
+    if (!dates || dates.length === 0) {
+        container.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:0.9rem;">Nenhuma data cadastrada. Use o campo abaixo para adicionar.</div>';
+        return;
+    }
+
+    let html = '';
+    dates.forEach((d, idx) => {
+        const isPresent = d.isPresent;
+        const color = isPresent ? '#10b981' : 'rgba(255,255,255,0.2)';
+        const bg = isPresent ? 'rgba(16, 185, 129, 0.1)' : 'rgba(0,0,0,0.2)';
+        const cursor = d.originalPresent ? 'default' : 'pointer';
+        const opacity = d.originalPresent ? '0.7' : '1';
+
+        html += `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px; opacity: ${opacity};">
+                <div>
+                    <div style="font-weight:700; color:#fff; font-size:0.95rem;">📅 ${d.dateStr}</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); font-weight:500; text-transform:uppercase;">Turma: ${d.turma}</div>
+                </div>
+                <div class="toggle-presence" data-idx="${idx}" style="cursor:${cursor}; display:flex; align-items:center; gap:8px; background:${bg}; padding:6px 12px; border-radius:20px; border:1px solid ${color}; transition:all 0.3s;">
+                    <div style="width:12px; height:12px; border-radius:50%; background:${color}; box-shadow:0 0 8px ${isPresent ? '#10b981' : 'transparent'};"></div>
+                    <span style="font-size:0.8rem; font-weight:700; color:${isPresent ? '#10b981' : 'var(--text-muted)'}">${isPresent ? 'Presente' : 'Faltou'}</span>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+function addCustomDateToMediumList() {
+    const input = document.getElementById('bulk-custom-date');
+    const feedback = document.getElementById('bulk-feedback');
+    if (!input || !input.value) {
+        feedback.innerHTML = '<span style="color:#ef4444">Selecione uma data para adicionar.</span>';
+        return;
+    }
+
+    const partes = input.value.split('-');
+    const dateStr = `${partes[2]}/${partes[1]}/${partes[0]}`;
+
+    if (!window.currentBulkMediumDates) window.currentBulkMediumDates = [];
+
+    const exists = window.currentBulkMediumDates.some(d => d.dateStr === dateStr);
+    if (exists) {
+        feedback.innerHTML = '<span style="color:#f59e0b">Essa data já está na lista.</span>';
+        return;
+    }
+
+    const newDateObj = {
+        dateStr: dateStr,
+        isoDate: input.value,
+        rawTime: new Date(partes[0], partes[1] - 1, partes[2]).getTime(),
+        turma: "Manual",
+        isPresent: true,
+        originalPresent: false
+    };
+
+    window.currentBulkMediumDates.unshift(newDateObj);
+    renderBulkListByMedium(window.currentBulkMediumDates);
+    input.value = '';
+    feedback.innerHTML = '<span style="color:#10b981">Data adicionada e marcada como presente!</span>';
+    setTimeout(() => { feedback.innerHTML = ''; }, 2000);
+}
+
 async function saveBulkPresenceList(adminEmail) {
+    const feedback = document.getElementById('bulk-feedback');
+    const btnSave = document.getElementById('btn-save-bulk');
+
+    if (window.currentBulkMode === 'medium') {
+        const dates = window.currentBulkMediumDates;
+        const medium = window.currentBulkMedium;
+
+        if (!dates || !medium) return;
+
+        const newPresences = dates.filter(d => d.isPresent && !d.originalPresent);
+
+        if (newPresences.length === 0) {
+            feedback.innerHTML = '<span style="color:var(--text-muted)">Nenhuma nova presença para salvar.</span>';
+            setTimeout(() => closeModalById('bulk-presence-modal'), 1500);
+            return;
+        }
+
+        btnSave.innerText = 'Salvando...';
+        btnSave.disabled = true;
+        feedback.innerHTML = '';
+
+        try {
+            const res = await apiFetch('saveBulkPresenceByMedium', {
+                method: 'POST',
+                data: {
+                    mediumEmail: medium.email,
+                    mediumNome: medium.nome,
+                    adminEmail: adminEmail,
+                    presences: newPresences
+                }
+            });
+
+            if (res.status === "success") {
+                feedback.innerHTML = `<span style="color:#10b981">✅ ${res.message}</span>`;
+                newPresences.forEach(d => d.originalPresent = true);
+                renderBulkListByMedium(window.currentBulkMediumDates);
+
+                setTimeout(() => {
+                    closeModalById('bulk-presence-modal');
+                    btnSave.innerText = 'Salvar Presenças';
+                    btnSave.disabled = false;
+                }, 2000);
+            } else {
+                feedback.innerHTML = `<span style="color:#ef4444">Erro: ${res.message}</span>`;
+                btnSave.innerText = 'Salvar Presenças';
+                btnSave.disabled = false;
+            }
+        } catch (err) {
+            feedback.innerHTML = `<span style="color:#ef4444">Erro na conexão.</span>`;
+            btnSave.innerText = 'Salvar Presenças';
+            btnSave.disabled = false;
+        }
+
+        return;
+    }
+
     const list = window.currentBulkList;
     if (!list) return;
 
     // Filtra apenas os que mudaram de falso para verdadeiro (ou seja, os novos presentes marcados agora)
     const newPresences = list.filter(u => u.isPresent && !u.originalPresent);
-    const feedback = document.getElementById('bulk-feedback');
-    const btnSave = document.getElementById('btn-save-bulk');
 
     if (newPresences.length === 0) {
         feedback.innerHTML = '<span style="color:var(--text-muted)">Nenhuma nova presença para salvar.</span>';
@@ -1399,15 +1679,6 @@ async function saveBulkPresenceList(adminEmail) {
     btnSave.innerText = 'Salvando...';
     btnSave.disabled = true;
     feedback.innerHTML = '';
-
-    const payload = {
-        action: 'saveBulkPresence',
-        data: {
-            date: dateVal,
-            adminEmail: adminEmail,
-            presences: newPresences
-        }
-    };
 
     try {
         const res = await apiFetch('saveBulkPresence', {
