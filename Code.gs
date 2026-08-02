@@ -706,7 +706,7 @@ function getUserData(email) {
     frequencyStats.percentage = frequencyStats.total > 0 ? Math.round((frequencyStats.present / frequencyStats.total) * 100) : 0;
   }
   
-  const presenceToday = false;
+  let presenceToday = false;
   const presenceSheet = ss.getSheetByName(NOME_ABA_PRESENCAS);
   if (presenceSheet) {
     const presencesData = presenceSheet.getDataRange().getValues();
