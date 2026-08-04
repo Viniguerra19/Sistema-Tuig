@@ -13,6 +13,8 @@ const NOME_ABA_JUSTIFICATIVAS = "Justificativas";
 const NOME_ABA_MENSALIDADES = "Mensalidades";
 const NOME_ABA_LIVROS = "Livros";
 const NOME_ABA_EMPRESTIMOS = "Empréstimos";
+const NOME_ABA_CURSO_TUIG = "curso tuig";
+
 
 // Configurações do Terreiro
 const TERREIRO_LAT = -23.48319550467122;
@@ -55,6 +57,8 @@ function doGet(e) {
          return handleGetFinancialReport(e.parameter.email);
       case 'getBooksData':
          return handleGetBooksData(e.parameter.email);
+      case 'getCoursesData':
+         return handleGetCoursesData(e.parameter.email);
       default:
         return createJsonResponse({ status: "error", message: "Ação não especificada ou inválida." }, 400);
     }
@@ -109,6 +113,8 @@ function doPost(e) {
         return handleConfirmBookPickup(payload.data);
       case 'confirmBookReturn':
         return handleConfirmBookReturn(payload.data);
+      case 'enrollCourse':
+        return handleEnrollCourse(payload.data);
       default:
         return createJsonResponse({ status: "error", message: "Ação POST inválida." }, 400);
     }
@@ -2366,4 +2372,225 @@ function enrichBookDetails() {
     showAlert("Erro ao enriquecer acervo: " + err.toString());
   }
 }
+
+/**
+ * OBTÉM OU CRIA A ABA 'curso tuig' NA PLANILHA
+ */
+function getCursoTuigSheet(ss) {
+  let sheet = ss.getSheetByName(NOME_ABA_CURSO_TUIG);
+  if (!sheet) {
+    sheet = ss.insertSheet(NOME_ABA_CURSO_TUIG);
+    sheet.appendRow(["Nome", "Turma", "Data curso", "Curso", "Comprovante curso", "Valor do curso"]);
+    sheet.getRange(1, 1, 1, 6).setFontWeight("bold");
+  }
+  return sheet;
+}
+
+/**
+ * BUSCA DADOS DE CURSOS E INSCRIÇÕES NA ABA 'curso tuig'
+ */
+function handleGetCoursesData(email) {
+  if (!email) {
+    return createJsonResponse({ status: "error", message: "E-mail não fornecido." }, 400);
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const searchEmail = email.toLowerCase().trim();
+    
+    // Busca dados do usuário
+    const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
+    const userData = userSheet.getDataRange().getValues();
+    let userName = "";
+    let userTurma = "";
+    
+    for (let i = 1; i < userData.length; i++) {
+      if (userData[i][0].toString().toLowerCase().trim() === searchEmail) {
+        userName = userData[i][1].toString().trim();
+        userTurma = userData[i][5] ? userData[i][5].toString().trim() : "";
+        break;
+      }
+    }
+    
+    const courseSheet = getCursoTuigSheet(ss);
+    const courseData = courseSheet.getDataRange().getValues();
+    
+    const userEnrollments = [];
+    const definedCoursesMap = {};
+    
+    // Ler registros da aba 'curso tuig' EXCLUSIVAMENTE
+    for (let i = 1; i < courseData.length; i++) {
+      const rowNome = courseData[i][0] ? courseData[i][0].toString().trim() : "";
+      const rowTurma = courseData[i][1] ? courseData[i][1].toString().trim() : "";
+      const rawDataVal = courseData[i][2];
+      const rowCurso = courseData[i][3] ? courseData[i][3].toString().trim() : "";
+      const rowComprovante = courseData[i][4] ? courseData[i][4].toString().trim() : "";
+      const rowValorRaw = courseData[i][5] ? courseData[i][5].toString().trim() : "";
+      
+      if (!rowCurso) continue;
+      
+      let formattedDateStr = "";
+      if (rawDataVal) {
+        if (rawDataVal instanceof Date) {
+          formattedDateStr = Utilities.formatDate(rawDataVal, Session.getScriptTimeZone() || "GMT-03:00", "dd/MM/yyyy");
+        } else {
+          const str = rawDataVal.toString().trim();
+          if (str.indexOf("GMT") !== -1 || str.indexOf("00:00:00") !== -1 || str.length > 12) {
+            const d = new Date(str);
+            formattedDateStr = !isNaN(d.getTime()) ? Utilities.formatDate(d, Session.getScriptTimeZone() || "GMT-03:00", "dd/MM/yyyy") : str;
+          } else {
+            formattedDateStr = str;
+          }
+        }
+      }
+      
+      let valorFormatted = rowValorRaw;
+      if (!rowValorRaw || rowValorRaw === "0") {
+        valorFormatted = "Grátis";
+      } else if (!isNaN(rowValorRaw)) {
+        valorFormatted = "R$ " + rowValorRaw + ",00";
+      }
+      
+      const key = rowCurso.toLowerCase();
+      
+      if (!definedCoursesMap[key] || !rowNome) {
+        definedCoursesMap[key] = {
+          id: "c_" + i,
+          nome: rowCurso,
+          data: formattedDateStr,
+          valor: valorFormatted,
+          descricao: formattedDateStr ? `Data: ${formattedDateStr}` : ""
+        };
+      }
+      
+      // Se for uma inscrição do usuário logado (linha com Nome preenchido)
+      if (userName && rowNome && rowNome.toLowerCase() === userName.toLowerCase()) {
+        userEnrollments.push({
+          curso: rowCurso,
+          data: formattedDateStr,
+          comprovante: rowComprovante,
+          valor: valorFormatted
+        });
+      }
+    }
+    
+    const availableCourses = Object.values(definedCoursesMap);
+    
+    return createJsonResponse({
+      status: "success",
+      data: {
+        userEnrollments: userEnrollments,
+        availableCourses: availableCourses,
+        userName: userName,
+        userTurma: userTurma
+      }
+    });
+  } catch (error) {
+    return createJsonResponse({ status: "error", message: "Erro ao buscar cursos: " + error.toString() }, 500);
+  }
+}
+
+/**
+ * REALIZA A INSCRIÇÃO DO ALUNO NO CURSO (E ANEXA COMPROVANTE SE FOR PAGO)
+ */
+function handleEnrollCourse(data) {
+  const { email, nome, turma, curso, valor, fileBase64, fileName, mimeType } = data;
+  
+  if (!email || !curso) {
+    return createJsonResponse({ status: "error", message: "E-mail e curso são obrigatórios." }, 400);
+  }
+  
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    // Busca nome e turma se não passados
+    let studentNome = nome ? nome.trim() : "";
+    let studentTurma = turma ? turma.trim() : "";
+    
+    if (!studentNome || !studentTurma) {
+      const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
+      const userData = userSheet.getDataRange().getValues();
+      const searchEmail = email.toLowerCase().trim();
+      
+      for (let i = 1; i < userData.length; i++) {
+        if (userData[i][0].toString().toLowerCase().trim() === searchEmail) {
+          if (!studentNome) studentNome = userData[i][1].toString().trim();
+          if (!studentTurma) studentTurma = userData[i][5] ? userData[i][5].toString().trim() : "";
+          break;
+        }
+      }
+    }
+    
+    const cursoValorStr = valor ? valor.toString().trim() : "Grátis";
+    const valorClean = cursoValorStr.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const isFree = valorClean.includes("gratis") || valorClean.includes("gratuito") || valorClean === "0" || valorClean === "r$ 0,00" || valorClean === "r$ 0";
+    
+    let comprovanteUrl = "Grátis";
+    
+    if (!isFree) {
+      if (!fileBase64 || !fileName) {
+        return createJsonResponse({ 
+          status: "error", 
+          message: "Atenção: Este é um curso pago. Para efetivar sua inscrição, é obrigatório anexar o comprovante de pagamento." 
+        }, 400);
+      }
+      
+      // Upload do comprovante no Drive
+      let base64Part = fileBase64;
+      if (fileBase64.indexOf("base64,") !== -1) {
+        base64Part = fileBase64.split("base64,")[1];
+      }
+      const decoded = Utilities.base64Decode(base64Part);
+      const blob = Utilities.newBlob(decoded, mimeType || "image/jpeg", fileName);
+      
+      const folderName = "Comprovantes Cursos TUIG";
+      const folders = DriveApp.getFoldersByName(folderName);
+      let mainFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+      
+      const studentFolderName = studentNome || email;
+      const studentFolders = mainFolder.getFoldersByName(studentFolderName);
+      let targetFolder = studentFolders.hasNext() ? studentFolders.next() : mainFolder.createFolder(studentFolderName);
+      
+      const file = targetFolder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      comprovanteUrl = file.getUrl();
+    }
+    
+    const sheet = getCursoTuigSheet(ss);
+    const dataRange = sheet.getDataRange().getValues();
+    
+    const nowStr = new Date().toLocaleDateString("pt-BR");
+    let updated = false;
+    
+    // Se o usuário já tiver um registro para este curso, atualiza a linha existente
+    for (let i = 1; i < dataRange.length; i++) {
+      const rNome = dataRange[i][0] ? dataRange[i][0].toString().trim().toLowerCase() : "";
+      const rCurso = dataRange[i][3] ? dataRange[i][3].toString().trim().toLowerCase() : "";
+      
+      if (rNome === studentNome.toLowerCase() && rCurso === curso.trim().toLowerCase()) {
+        const rowIndex = i + 1;
+        sheet.getRange(rowIndex, 2).setValue(studentTurma);
+        sheet.getRange(rowIndex, 3).setValue(nowStr);
+        sheet.getRange(rowIndex, 5).setValue(comprovanteUrl);
+        sheet.getRange(rowIndex, 6).setValue(cursoValorStr);
+        updated = true;
+        break;
+      }
+    }
+    
+    if (!updated) {
+      sheet.appendRow([studentNome, studentTurma, nowStr, curso, comprovanteUrl, cursoValorStr]);
+    }
+    
+    return createJsonResponse({
+      status: "success",
+      message: isFree 
+        ? `Inscrição no curso "${curso}" realizada com sucesso!` 
+        : `Inscrição no curso "${curso}" efetivada com sucesso! Comprovante recebido.`
+    });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: "Erro ao processar inscrição: " + err.toString() }, 500);
+  }
+}
+
 

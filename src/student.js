@@ -60,8 +60,12 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                 <!-- Controle Financeiro / Mensalidades -->
                 <div id="payment-card-container"></div>
 
+                <!-- Cursos TUIG -->
+                <div id="courses-card-container"></div>
+
                 <!-- Biblioteca -->
                 <div id="library-card-container"></div>
+
 
                 <!-- Histórico e Rituais -->
                 <section class="animate-fade-in">
@@ -400,6 +404,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
 
         if (json.status === "success") {
             showUserData(json.data);
+            renderStudentCourses(email);
             renderStudentLibrary(email);
         } else {
             showError(json.message);
@@ -1241,4 +1246,293 @@ export function renderBooksShowcase(filterQuery = '') {
 
 window.renderStudentLibrary = renderStudentLibrary;
 window.renderBooksShowcase = renderBooksShowcase;
+
+/**
+ * GESTÃO DE CURSOS TUIG NA ÁREA DO ALUNO
+ */
+export async function renderStudentCourses(email) {
+    const cardContainer = document.getElementById('courses-card-container');
+    if (!cardContainer) return;
+
+    cardContainer.innerHTML = `
+        <div class="presence-card animate-fade-in" style="background: var(--glass-bg); padding: 28px; border-radius: 24px; border: 1px solid var(--glass-border); box-shadow: var(--premium-shadow); margin-bottom: 24px; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #10b981, #6366f1);"></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 style="margin: 0; font-weight: 700; font-size: 1.3rem; color: #fff; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px;">
+                        <span>🎓</span> Cursos TUIG
+                    </h3>
+                </div>
+            </div>
+
+            <div id="courses-loading" class="loader active"></div>
+            <div id="student-courses-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 16px;"></div>
+        </div>
+    `;
+
+    try {
+        const json = await apiFetch('getCoursesData', { params: { email } });
+        const loader = document.getElementById('courses-loading');
+        if (loader) loader.classList.remove('active');
+
+        if (json.status === "success" && json.data) {
+            const { availableCourses, userEnrollments, userName, userTurma } = json.data;
+            window.tuigStudentCoursesData = json.data;
+            renderCoursesGrid(email, availableCourses, userEnrollments, userName, userTurma);
+        } else {
+            const list = document.getElementById('student-courses-list');
+            if (list) list.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem;">Nenhum curso disponível no momento.</p>`;
+        }
+    } catch (e) {
+        console.error("Erro ao carregar cursos:", e);
+        const loader = document.getElementById('courses-loading');
+        if (loader) loader.classList.remove('active');
+        const list = document.getElementById('student-courses-list');
+        if (list) list.innerHTML = `<p style="color: #f87171; font-size: 0.9rem;">Erro ao conectar com o servidor.</p>`;
+    }
+}
+
+function renderCoursesGrid(email, availableCourses, userEnrollments, userName, userTurma) {
+    const listDiv = document.getElementById('student-courses-list');
+    if (!listDiv) return;
+
+    listDiv.innerHTML = '';
+
+    if (!availableCourses || availableCourses.length === 0) {
+        listDiv.innerHTML = `<p style="color: var(--text-muted); font-size: 0.9rem; grid-column: 1/-1;">Nenhum curso cadastrado no momento.</p>`;
+        return;
+    }
+
+    const enrollmentMap = {};
+    if (userEnrollments) {
+        userEnrollments.forEach(en => {
+            if (en.curso) {
+                enrollmentMap[en.curso.toLowerCase().trim()] = en;
+            }
+        });
+    }
+
+    availableCourses.forEach(course => {
+        const courseName = course.nome;
+        const valorStr = course.valor || "Grátis";
+        const valorClean = valorStr.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const isFree = valorClean.includes("gratis") || valorClean.includes("gratuito") || valorClean === "0" || valorClean === "r$ 0,00" || valorClean === "r$ 0";
+
+        const existingEnrollment = enrollmentMap[courseName.toLowerCase().trim()];
+
+        const card = document.createElement('div');
+        card.className = 'course-card';
+        card.style.cssText = `
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 16px;
+            transition: all 0.3s;
+            position: relative;
+        `;
+
+        const badgeBg = isFree ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)';
+        const badgeColor = isFree ? '#34d399' : '#fbbf24';
+        const badgeBorder = isFree ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)';
+
+        let actionHtml = '';
+
+        if (existingEnrollment) {
+            const hasComprovante = existingEnrollment.comprovante && existingEnrollment.comprovante.startsWith('http');
+            actionHtml = `
+                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: #34d399; padding: 12px 14px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; text-align: center; display: flex; flex-direction: column; gap: 4px;">
+                    <span>✅ Inscrição Efetivada</span>
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">Inscrito em ${existingEnrollment.data || 'Data recente'}</span>
+                    ${hasComprovante ? `<a href="${existingEnrollment.comprovante}" target="_blank" style="color: #60a5fa; text-decoration: underline; font-size: 0.78rem; margin-top: 4px;">📄 Ver Comprovante Enviado</a>` : ''}
+                </div>
+            `;
+        } else {
+            actionHtml = `
+                <button class="btn-enroll-course" data-course="${courseName}" data-price="${valorStr}" style="width: 100%; padding: 12px; background: var(--primary); color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; box-shadow: var(--glow-shadow);">
+                    ${isFree ? '⚡ Inscrever-se (Gratuito)' : '📝 Inscrever-se'}
+                </button>
+            `;
+        }
+
+        let dateText = course.data || "";
+        if (dateText.includes("GMT") || dateText.includes("00:00:00")) {
+            const d = new Date(dateText);
+            dateText = !isNaN(d.getTime()) ? d.toLocaleDateString("pt-BR") : dateText;
+        }
+        let descText = course.descricao || (dateText ? `Data: ${dateText}` : "");
+        if (descText.includes("GMT") || descText.includes("00:00:00")) {
+            descText = `Data: ${dateText}`;
+        }
+
+        card.innerHTML = `
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="background: ${badgeBg}; color: ${badgeColor}; border: ${badgeBorder}; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                        ${isFree ? '✨ GRÁTIS' : `💰 ${valorStr}`}
+                    </span>
+                </div>
+                <h4 style="margin: 0 0 8px 0; color: #fff; font-size: 1.05rem; font-weight: 700;">${courseName}</h4>
+                <p style="margin: 0; color: var(--text-muted); font-size: 0.83rem; line-height: 1.4;">${descText}</p>
+            </div>
+            <div>
+                ${actionHtml}
+            </div>
+        `;
+
+        listDiv.appendChild(card);
+    });
+
+    // Eventos dos botões de inscrição
+    listDiv.querySelectorAll('.btn-enroll-course').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const course = e.currentTarget.getAttribute('data-course');
+            const price = e.currentTarget.getAttribute('data-price');
+            openCourseEnrollModal(email, course, price, userName, userTurma);
+        });
+    });
+}
+
+function openCourseEnrollModal(email, courseName, priceStr, userName, userTurma) {
+    const valorClean = (priceStr || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const isFree = valorClean.includes("gratis") || valorClean.includes("gratuito") || valorClean === "0" || valorClean === "r$ 0,00" || valorClean === "r$ 0";
+
+    let modal = document.getElementById('course-enroll-modal');
+    if (!modal) {
+        const modalsContainer = document.getElementById('modals-container') || document.body;
+        modalsContainer.insertAdjacentHTML('beforeend', `
+            <div id="course-enroll-modal" class="modal">
+                <div class="modal-content" style="max-width: 480px; width: 95%;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h2 style="margin:0; font-size:1.4rem; font-weight:800; letter-spacing:-0.03em;">Inscrição no Curso</h2>
+                        <span id="close-course-enroll-modal" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1; cursor:pointer;">&times;</span>
+                    </div>
+
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 14px; margin-bottom: 20px;">
+                        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Curso Selecionado</div>
+                        <div id="enroll-modal-course-title" style="font-size: 1.15rem; font-weight: 700; color: #fff; margin-top: 4px;"></div>
+                        <div id="enroll-modal-course-price" style="font-size: 0.9rem; font-weight: 600; color: var(--accent); margin-top: 4px;"></div>
+                    </div>
+
+                    <!-- Aviso Destacado Obrigatório para Cursos Pagos -->
+                    <div id="enroll-paid-notice" style="display: none; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 14px; padding: 16px; margin-bottom: 20px; color: #fbbf24; font-size: 0.88rem; line-height: 1.4;">
+                        <strong>⚠️ ATENÇÃO:</strong> Este é um curso pago. Para efetivar sua inscrição, é <span style="text-decoration: underline; font-weight: 700;">obrigatório</span> anexar o comprovante de pagamento Pix ou transferência. Sua vaga só será garantida após o envio do comprovante.
+                    </div>
+
+                    <div id="enroll-file-section" style="margin-bottom: 20px; display: none;">
+                        <label style="display:block; margin-bottom: 8px; color:#fff; font-size:0.9rem; font-weight: 500;">Anexar Comprovante (Imagem ou PDF) *:</label>
+                        <input type="file" id="course-receipt-file-input" accept="image/*,application/pdf" style="width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; font-size: 0.9rem; outline: none;">
+                    </div>
+
+                    <button id="btn-submit-course-enroll" style="width: 100%; padding: 16px; font-size: 1rem; border-radius: 12px; display: flex; justify-content: center; align-items: center; gap: 8px; background: var(--primary); color: #fff; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; box-shadow: var(--glow-shadow);">
+                        Confirmar Inscrição
+                    </button>
+                    
+                    <div id="course-enroll-feedback" style="margin-top: 15px; text-align: center; font-size: 0.9rem;"></div>
+                </div>
+            </div>
+        `);
+
+        document.getElementById('close-course-enroll-modal').addEventListener('click', () => {
+            closeModalById('course-enroll-modal');
+        });
+    }
+
+    document.getElementById('enroll-modal-course-title').innerText = courseName;
+    document.getElementById('enroll-modal-course-price').innerText = isFree ? "Valor: Grátis" : `Valor: ${priceStr}`;
+
+    const paidNotice = document.getElementById('enroll-paid-notice');
+    const fileSection = document.getElementById('enroll-file-section');
+    const fileInput = document.getElementById('course-receipt-file-input');
+    const feedback = document.getElementById('course-enroll-feedback');
+    const btnSubmit = document.getElementById('btn-submit-course-enroll');
+
+    feedback.innerHTML = '';
+    if (fileInput) fileInput.value = '';
+
+    if (isFree) {
+        paidNotice.style.display = 'none';
+        fileSection.style.display = 'none';
+        btnSubmit.innerHTML = '⚡ Confirmar Inscrição Gratuita';
+    } else {
+        paidNotice.style.display = 'block';
+        fileSection.style.display = 'block';
+        btnSubmit.innerHTML = '📄 Enviar Comprovante e Efetivar Inscrição';
+    }
+
+    btnSubmit.onclick = async () => {
+        if (!isFree && (!fileInput.files || fileInput.files.length === 0)) {
+            feedback.innerHTML = '<span style="color:#f87171; font-weight: 600;">⚠️ Selecione o arquivo do comprovante para efetivar a inscrição.</span>';
+            return;
+        }
+
+        btnSubmit.disabled = true;
+        const originalText = btnSubmit.innerHTML;
+        btnSubmit.innerHTML = 'Processando...';
+        feedback.innerHTML = '';
+
+        try {
+            let fileBase64 = null;
+            let fileName = null;
+            let mimeType = null;
+
+            if (!isFree && fileInput.files && fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                if (file.size > 5 * 1024 * 1024) {
+                    feedback.innerHTML = '<span style="color:#f87171">O arquivo do comprovante deve ter no máximo 5MB.</span>';
+                    btnSubmit.disabled = false;
+                    btnSubmit.innerHTML = originalText;
+                    return;
+                }
+                fileName = file.name;
+                mimeType = file.type;
+
+                fileBase64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            const json = await apiFetch('enrollCourse', {
+                method: 'POST',
+                data: {
+                    email,
+                    nome: userName,
+                    turma: userTurma,
+                    curso: courseName,
+                    valor: priceStr,
+                    fileBase64,
+                    fileName,
+                    mimeType
+                }
+            });
+
+            if (json.status === "success") {
+                feedback.innerHTML = `<span style="color:#34d399; font-weight:600;">✅ ${json.message}</span>`;
+                setTimeout(async () => {
+                    closeModalById('course-enroll-modal');
+                    await renderStudentCourses(email);
+                }, 1800);
+            } else {
+                feedback.innerHTML = `<span style="color:#f87171">Erro: ${json.message}</span>`;
+            }
+        } catch (err) {
+            console.error("Erro na inscrição:", err);
+            feedback.innerHTML = '<span style="color:#f87171">Erro na conexão com o servidor. Tente novamente.</span>';
+        } finally {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = originalText;
+        }
+    };
+
+    openModalById('course-enroll-modal');
+}
+
+window.renderStudentCourses = renderStudentCourses;
+
 
