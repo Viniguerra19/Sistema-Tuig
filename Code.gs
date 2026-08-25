@@ -2453,7 +2453,8 @@ function handleGetCoursesData(email) {
       
       const key = rowCurso.toLowerCase();
       
-      if (!definedCoursesMap[key] || !rowNome) {
+      // Apenas linhas sem Nome (rowNome vazio) definem cursos abertos/disponíveis para inscrição
+      if (!rowNome) {
         definedCoursesMap[key] = {
           id: "c_" + i,
           nome: rowCurso,
@@ -2585,8 +2586,8 @@ function handleEnrollCourse(data) {
     return createJsonResponse({
       status: "success",
       message: isFree 
-        ? `Inscrição no curso "${curso}" realizada com sucesso!` 
-        : `Inscrição no curso "${curso}" efetivada com sucesso! Comprovante recebido.`
+        ? `Inscrição no curso "${curso}" realizada com sucesso! Lembramos que não é permitida a presença de crianças durante o curso.` 
+        : `Inscrição no curso "${curso}" efetivada com sucesso! Comprovante recebido. Lembramos que não é permitida a presença de crianças durante o curso.`
     });
   } catch (err) {
     return createJsonResponse({ status: "error", message: "Erro ao processar inscrição: " + err.toString() }, 500);

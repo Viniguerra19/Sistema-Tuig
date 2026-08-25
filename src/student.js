@@ -289,23 +289,23 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
         const fileInput = document.getElementById('receipt-file-input');
         const feedback = document.getElementById('upload-receipt-feedback');
         const obsInput = document.getElementById('receipt-obs-input');
-        
+
         if (!fileInput.files || fileInput.files.length === 0) {
             feedback.innerHTML = '<span style="color:var(--danger)">Selecione um arquivo.</span>';
             return;
         }
-        
+
         const file = fileInput.files[0];
         if (file.size > 4 * 1024 * 1024) {
             feedback.innerHTML = '<span style="color:var(--danger)">Arquivo muito grande (máximo 4MB).</span>';
             return;
         }
-        
+
         const btn = document.getElementById('btn-submit-receipt');
         const originalText = btn.innerHTML;
         btn.innerHTML = '<span style="font-size: 0.9rem; opacity: 0.8;">Enviando...</span>';
         btn.disabled = true;
-        
+
         const reader = new FileReader();
         reader.onload = async function (e) {
             const base64Data = e.target.result;
@@ -324,7 +324,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                         obs: obsInput ? obsInput.value.trim() : ""
                     }
                 });
-                
+
                 if (json.status === 'success') {
                     feedback.innerHTML = '<span style="color:var(--success)">Comprovante enviado com sucesso!</span>';
                     setTimeout(() => {
@@ -347,17 +347,17 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
     document.getElementById('btn-submit-justification').addEventListener('click', async () => {
         const text = document.getElementById('justification-text').value.trim();
         const feedback = document.getElementById('justification-feedback');
-        
+
         if (!text) {
             feedback.innerHTML = '<span style="color:var(--danger)">Por favor, preencha o motivo.</span>';
             return;
         }
-        
+
         const btn = document.getElementById('btn-submit-justification');
         const originalText = btn.innerHTML;
         btn.innerHTML = '<span style="font-size: 0.9rem; opacity: 0.8;">Enviando...</span>';
         btn.disabled = true;
-        
+
         try {
             const userName = document.getElementById('user-name').innerText;
             const json = await apiFetch('sendJustification', {
@@ -369,7 +369,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                     dataEvento: window.currentJustificationDate
                 }
             });
-            
+
             if (json.status === 'success') {
                 feedback.innerHTML = '<span style="color:var(--success)">Justificativa enviada com sucesso!</span>';
                 document.getElementById('justification-text').value = '';
@@ -493,10 +493,10 @@ function showUserData(data) {
     const paymentContainer = document.getElementById('payment-card-container');
     if (paymentContainer) {
         paymentContainer.innerHTML = '';
-        
+
         const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
         const currentYear = new Date().getFullYear();
-        
+
         const payCard = document.createElement('div');
         payCard.className = 'presence-card animate-fade-in';
         payCard.style.background = 'var(--glass-bg)';
@@ -574,7 +574,7 @@ function showUserData(data) {
             </div>
         `;
         paymentContainer.appendChild(payCard);
-        
+
         // Bind upload triggers
         document.querySelectorAll('.btn-upload-receipt-trigger').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -802,22 +802,22 @@ function showInstallTutorialModal() {
 
 // Verifica se está dentro do prazo: das 07:00 do dia do evento até Domingo 12:00
 function isJustificationAllowed(evtRawDateStr) {
-    if(!evtRawDateStr) return false;
-    
+    if (!evtRawDateStr) return false;
+
     const evtDate = new Date(evtRawDateStr);
-    if(isNaN(evtDate)) return false;
-    
+    if (isNaN(evtDate)) return false;
+
     // Início: 07:00 da manhã do dia do evento (usando a data do evento)
     const startDate = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate(), 7, 0, 0, 0);
 
     // Prazo Final: Domingo seguinte às 12:00
     const limitDate = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate(), 12, 0, 0, 0);
-    const dayOfWeek = limitDate.getDay(); 
+    const dayOfWeek = limitDate.getDay();
     const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-    
+
     limitDate.setDate(limitDate.getDate() + daysUntilSunday);
     limitDate.setHours(12, 0, 0, 0); // Domingo, 12:00:00
-    
+
     const agora = new Date();
     return agora >= startDate && agora <= limitDate;
 }
@@ -846,7 +846,7 @@ export async function renderStudentLibrary(email) {
 
     try {
         const json = await apiFetch('getBooksData', { params: { email } });
-        
+
         const loader = document.getElementById('library-loading');
         if (loader) loader.classList.remove('active');
 
@@ -984,11 +984,11 @@ export function renderBooksShowcase(filterQuery = '') {
 
     const query = filterQuery.toLowerCase().trim();
     const email = localStorage.getItem('tuig_email');
-    
+
     // 1. Extrair categorias únicas de todos os livros
     const books = window.libraryData.books;
     const categories = ['Todos', ...new Set(books.map(b => b.categoria).filter(Boolean))];
-    
+
     // Inicializa categoria padrão se não definida
     if (!window.activeLibraryCategory) {
         window.activeLibraryCategory = 'Todos';
@@ -1009,7 +1009,7 @@ export function renderBooksShowcase(filterQuery = '') {
                 btn.style.flex = '0 0 auto';
                 btn.style.fontWeight = '600';
                 btn.style.transition = 'all 0.2s';
-                
+
                 if (window.activeLibraryCategory === cat) {
                     btn.style.background = 'var(--primary)';
                     btn.style.color = '#fff';
@@ -1017,14 +1017,14 @@ export function renderBooksShowcase(filterQuery = '') {
                     btn.style.background = 'rgba(255, 255, 255, 0.05)';
                     btn.style.color = 'var(--text-muted)';
                 }
-                
+
                 btn.addEventListener('click', () => {
                     window.activeLibraryCategory = cat;
                     // Re-renderiza mantendo a busca atual
                     const currentSearch = document.getElementById('library-search-input')?.value || '';
                     renderBooksShowcase(currentSearch);
                 });
-                
+
                 categoriesContainer.appendChild(btn);
             });
             categoriesContainer.style.display = 'flex';
@@ -1051,10 +1051,10 @@ export function renderBooksShowcase(filterQuery = '') {
         const card = document.createElement('div');
         card.className = 'book-card animate-fade-in';
 
-        const activeUserLoans = window.libraryData.loans.filter(l => 
-            l.livroId === book.id && 
-            l.email.toLowerCase().trim() === email.toLowerCase().trim() && 
-            l.status !== 'Devolvido' && 
+        const activeUserLoans = window.libraryData.loans.filter(l =>
+            l.livroId === book.id &&
+            l.email.toLowerCase().trim() === email.toLowerCase().trim() &&
+            l.status !== 'Devolvido' &&
             l.status !== 'Cancelado'
         );
 
@@ -1124,11 +1124,15 @@ export function renderBooksShowcase(filterQuery = '') {
 
         card.innerHTML = `
             ${coverHtml}
-            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-width: 0;">
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px;">
-                        <h4 class="book-info-title" title="${book.titulo}">${book.titulo}</h4>
-                        ${statusBadge}
+                        <div style="flex: 1; min-width: 0;">
+                            <h4 class="book-info-title" title="${book.titulo}">${book.titulo}</h4>
+                        </div>
+                        <div style="flex-shrink: 0;">
+                            ${statusBadge}
+                        </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                         <span class="badge-loan" style="font-size: 0.65rem; padding: 3px 8px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); text-transform: uppercase;">${book.categoria || 'Geral'}</span>
@@ -1263,6 +1267,12 @@ export async function renderStudentCourses(email) {
                         <span>🎓</span> Cursos TUIG
                     </h3>
                 </div>
+            </div>
+
+            <!-- Aviso Destacado de Não Permissão de Crianças -->
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 14px; padding: 12px 16px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; color: #fca5a5; font-size: 0.85rem; line-height: 1.4;">
+                <span style="font-size: 1.25rem; flex-shrink: 0;">🚫</span>
+                <span><strong style="color: #f87171;">Aviso importante:</strong> Não é permitida a presença de crianças (de qualquer idade) durante a realização dos cursos.</span>
             </div>
 
             <div id="courses-loading" class="loader active"></div>
@@ -1411,10 +1421,16 @@ function openCourseEnrollModal(email, courseName, priceStr, userName, userTurma)
                         <span id="close-course-enroll-modal" class="close-modal" style="position:static; color:#fff; font-size:1.8rem; line-height:1; cursor:pointer;">&times;</span>
                     </div>
 
-                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 14px; margin-bottom: 20px;">
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 16px; border-radius: 14px; margin-bottom: 16px;">
                         <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Curso Selecionado</div>
                         <div id="enroll-modal-course-title" style="font-size: 1.15rem; font-weight: 700; color: #fff; margin-top: 4px;"></div>
                         <div id="enroll-modal-course-price" style="font-size: 0.9rem; font-weight: 600; color: var(--accent); margin-top: 4px;"></div>
+                    </div>
+
+                    <!-- Aviso de Não Permissão de Crianças no Modal -->
+                    <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.22); border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; color: #fca5a5; font-size: 0.83rem; line-height: 1.4; display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.15rem; flex-shrink: 0;">🚫</span>
+                        <span><strong style="color: #f87171;">Atenção:</strong> Não é permitida a presença de crianças (de qualquer idade) durante o curso.</span>
                     </div>
 
                     <!-- Aviso Destacado Obrigatório para Cursos Pagos -->
