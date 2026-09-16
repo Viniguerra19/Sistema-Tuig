@@ -1,5 +1,7 @@
 import { getBadgeClass, openModalById, closeModalById, renderGenericHistory, normalizeText, apiFetch } from './utils.js';
 import { renderStudentDashboard } from './student.js';
+import { renderFollowupCenter } from './followup.js';
+import { renderAdminReflections } from './reflection.js';
 
 export async function renderAdminDashboard(email) {
     const role = localStorage.getItem('tuig_role') || 'admin';
@@ -32,6 +34,7 @@ export async function renderAdminDashboard(email) {
         </nav>
 
         <!-- Seção Administrativa -->
+        <section id="section-followup" class="hidden"></section>
         <section id="section-admin" class="${!hasFullAdminAccess ? 'hidden' : ''}">
             <div class="presence-card" style="background: rgba(255,255,255,0.02); padding: 20px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 30px;">
                 <h3 style="margin-bottom: 15px; font-weight: 500;">Presença no Terreiro</h3>
@@ -76,6 +79,7 @@ export async function renderAdminDashboard(email) {
                     <div style="display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px;">
                         <button class="turma-filter-btn" data-turma="sexta" style="padding: 8px 16px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: white; cursor: pointer; font-weight: 600;">Sexta</button>
                         <button class="turma-filter-btn" data-turma="sabado" style="padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: var(--text-muted); cursor: pointer; font-weight: 600;">Sábado</button>
+                        <button class="turma-filter-btn" data-turma="domingo" style="padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: var(--text-muted); cursor: pointer; font-weight: 600;">Domingo</button>
                     </div>
                 </div>
 
@@ -134,6 +138,7 @@ export async function renderAdminDashboard(email) {
                             <option value="all">Todas as Turmas</option>
                             <option value="sexta">Sexta</option>
                             <option value="sabado">Sábado</option>
+                            <option value="domingo">Domingo</option>
                         </select>
                     </div>
                 </div>
@@ -424,6 +429,26 @@ export async function renderAdminDashboard(email) {
         </section>
     `;
 
+    if (hasFullAdminAccess) {
+        const reflectionButton = document.createElement('button');
+        reflectionButton.className = 'tab-button'; reflectionButton.dataset.tab = 'reflections'; reflectionButton.textContent = 'Reflexões de sábado';
+        document.querySelector('.tab-container').append(reflectionButton);
+        const reflectionSection = document.createElement('section'); reflectionSection.id = 'section-reflections'; reflectionSection.className = 'hidden';
+        app.append(reflectionSection);
+        const button = document.createElement('button');
+        button.className = 'tab-button';
+        button.dataset.tab = 'followup';
+        button.textContent = 'Acompanhamento';
+        document.querySelector('.tab-container').prepend(button);
+        ['dashboard', 'finance'].forEach(section => {
+            const shortcut = document.createElement('button');
+            shortcut.textContent = 'Preparar lembretes e consultar contatos';
+            shortcut.style.marginBottom = '20px';
+            shortcut.addEventListener('click', () => switchTab('followup'));
+            document.getElementById(`section-${section}`)?.prepend(shortcut);
+        });
+    }
+
     // Initialize globals
     window.allUsers = [];
     window.currentUserEmail = email;
@@ -544,6 +569,7 @@ export async function renderAdminDashboard(email) {
                                 <select id="bulk-turma" style="width:100%; padding:10px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:8px; outline:none;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
                                     <option value="sexta">Sexta-feira</option>
                                     <option value="sabado">Sábado</option>
+                                    <option value="domingo">Domingo</option>
                                     <option value="geral">Gira Geral</option>
                                 </select>
                             </div>
@@ -1067,12 +1093,15 @@ async function openUserDetails(emailBusca, nome) {
 }
 
 function switchTab(tab) {
+    const reflectionSection = document.getElementById('section-reflections');
+    if (reflectionSection) reflectionSection.classList.add('hidden');
     const adminSection = document.getElementById('section-admin');
     const studentSection = document.getElementById('section-student');
     const dashboardSection = document.getElementById('section-dashboard');
     const reportsSection = document.getElementById('section-reports');
     const financeSection = document.getElementById('section-finance');
     const librarySection = document.getElementById('section-library');
+    const followupSection = document.getElementById('section-followup');
 
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelector(`.tab-button[data-tab="${tab}"]`).classList.add('active');
@@ -1083,10 +1112,17 @@ function switchTab(tab) {
     if (reportsSection) reportsSection.classList.add('hidden');
     if (financeSection) financeSection.classList.add('hidden');
     if (librarySection) librarySection.classList.add('hidden');
+    if (followupSection) followupSection.classList.add('hidden');
 
     const isMaster = (localStorage.getItem('tuig_role') || 'admin') === 'master_admin';
 
-    if (tab === 'admin') {
+    if (tab === 'reflections' && reflectionSection) {
+        reflectionSection.classList.remove('hidden');
+        renderAdminReflections(reflectionSection, window.currentUserEmail);
+    } else if (tab === 'followup') {
+        followupSection.classList.remove('hidden');
+        if (!followupSection.dataset.ready) renderFollowupCenter(followupSection, window.currentUserEmail);
+    } else if (tab === 'admin') {
         adminSection.classList.remove('hidden');
     } else if (tab === 'finance') {
         if (financeSection && isMaster) {
@@ -1258,11 +1294,11 @@ function renderizarDashboard(stats) {
         window.chartTurmasInstance = new Chart(ctxTurmas, {
             type: 'bar',
             data: {
-                labels: ['Sexta-feira', 'Sábado'],
+                labels: ['Sexta-feira', 'Sábado', 'Domingo'],
                 datasets: [{
                     label: 'Assiduidade Média',
-                    data: [stats.barChart.sexta, stats.barChart.sabado],
-                    backgroundColor: ['#10b981', '#f59e0b'],
+                    data: [stats.barChart.sexta, stats.barChart.sabado, stats.barChart.domingo || 0],
+                    backgroundColor: ['#10b981', '#f59e0b', '#818cf8'],
                     borderRadius: 10,
                     borderSkipped: false,
                     barThickness: 40
@@ -2102,12 +2138,14 @@ function renderizarFinanceiro() {
             </td>
         `;
         
-        meses.forEach(m => {
+        meses.forEach((m, monthIndex) => {
             const payInfo = u.payments ? u.payments[m] : null;
-            let symbol = "❌";
-            let color = "#ef4444";
+            const closedMonth = monthIndex < new Date().getMonth();
+            let symbol = closedMonth ? "—" : "·";
+            let color = closedMonth ? "#fbbf24" : "#94a3b8";
             let link = "";
             let obsAluno = "";
+            let description = closedMonth ? 'Sem pagamento registrado — conferir antes de cobrar' : 'Mês em andamento ou futuro — não classificado como atraso';
             
             if (payInfo) {
                 link = payInfo.link || "";
@@ -2115,15 +2153,17 @@ function renderizarFinanceiro() {
                 if (payInfo.status === "Aprovado" || payInfo.status === "Pago") {
                     symbol = "✅";
                     color = "#10b981";
+                    description = 'Pagamento confirmado';
                 } else if (payInfo.status === "Pendente") {
                     symbol = "⏳";
                     color = "#f59e0b";
+                    description = 'Comprovante aguardando análise';
                 }
             }
             
             cellsHtml += `
                 <td class="finance-cell" data-email="${u.email}" data-nome="${u.nome}" data-month="${m}" data-link="${link}" data-obs="${encodeURIComponent(obsAluno)}" style="text-align: center; vertical-align: middle; padding: 12px 6px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
-                    <span style="font-size: 1.15rem; color: ${color}; filter: drop-shadow(0 0 4px ${color}30);">${symbol}</span>
+                    <span title="${description}" aria-label="${description}" style="font-size: 1.15rem; color: ${color}; filter: drop-shadow(0 0 4px ${color}30);">${symbol}</span>
                 </td>
             `;
         });
@@ -2727,4 +2767,3 @@ async function confirmReturn(loanId) {
 window.carregarBiblioteca = carregarBiblioteca;
 window.renderLibLoans = renderLibLoans;
 window.renderLibBooks = renderLibBooks;
-

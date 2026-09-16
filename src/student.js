@@ -1,4 +1,5 @@
 import { getAreaClass, getBadgeClass, openModalById, closeModalById, renderGenericHistory, apiFetch } from './utils.js';
+import { renderStudentReflection } from './reflection.js';
 
 export async function renderStudentDashboard(email, targetContainerId = 'app') {
     const app = document.getElementById(targetContainerId);
@@ -58,6 +59,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                 ` : ''}
 
                 <!-- Controle Financeiro / Mensalidades -->
+                <div id="reflection-student-container" hidden></div>
                 <div id="payment-card-container"></div>
 
                 <!-- Cursos TUIG -->
@@ -428,6 +430,12 @@ function showUserData(data) {
     }
 
     document.getElementById('user-name').innerText = data.user.nome;
+    const reflectionContainer = document.getElementById('reflection-student-container');
+    const saturday = /(^|\W)sabado(\W|$)/.test(String(data.user.turma || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
+    if (reflectionContainer && saturday) {
+        reflectionContainer.hidden = false;
+        renderStudentReflection(reflectionContainer, data.user.email);
+    }
     document.getElementById('user-email-display').innerText = data.user.email;
 
     const ritualBadge = document.getElementById('next-ritual-badge');
@@ -1550,5 +1558,4 @@ function openCourseEnrollModal(email, courseName, priceStr, userName, userTurma)
 }
 
 window.renderStudentCourses = renderStudentCourses;
-
 

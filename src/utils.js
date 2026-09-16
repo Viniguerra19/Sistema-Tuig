@@ -195,7 +195,9 @@ export async function apiFetch(action, options = {}) {
         method,
         headers,
         body,
-        redirect: 'follow'
+        redirect: 'follow',
+        cache: 'no-store',
+        signal: AbortSignal.timeout(options.timeout || 30000)
     });
 
     const text = await response.text();

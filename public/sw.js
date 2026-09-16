@@ -1,7 +1,7 @@
 // Service Worker do Sistema TUIG
 // Combina cache offline + OneSignal Push Notifications
 
-const CACHE_NAME = 'tuig-cache-v13';
+const CACHE_NAME = 'tuig-cache-v14';
 const ASSETS_TO_CACHE = [
     '/sistema/',
     '/sistema/index.html'
@@ -23,7 +23,7 @@ self.addEventListener('activate', (event) => {
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames
-                    .filter((name) => name !== CACHE_NAME)
+                    .filter((name) => name.startsWith('tuig-cache-') && name !== CACHE_NAME)
                     .map((name) => caches.delete(name))
             );
         })
@@ -35,6 +35,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     // Ignora requests que não são GET
     if (event.request.method !== 'GET') return;
+    // Não guardar dados pessoais, tokens ou respostas da API no cache offline.
+    const url = new URL(event.request.url);
+    if (url.origin !== self.location.origin || url.searchParams.has('action')) return;
 
     event.respondWith(
         fetch(event.request)

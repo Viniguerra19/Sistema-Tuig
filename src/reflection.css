@@ -1,0 +1,17 @@
+.reflection { padding: 24px; background: var(--glass-bg, #182234); border: 1px solid var(--glass-border, #475569); border-radius: 20px; overflow-wrap: anywhere; }
+.reflection h3 { margin-top: 0; }
+.reflection p, .reflection li { line-height: 1.6; }
+.reflection li { margin-bottom: 24px; padding-left: 5px; }
+.reflection ol { padding-left: 24px; }
+.reflection label { display: block; margin: 14px 0; }
+.reflection textarea, .reflection input:not([type=radio]), .reflection select { display: block; box-sizing: border-box; width: 100%; margin-top: 10px; padding: 12px; color: #f1f5f9; background: #172035; border: 1px solid #64748b; border-radius: 8px; font: inherit; }
+.reflection textarea { resize: vertical; }
+.reflection input[type=radio] { width: auto; margin-right: 8px; }
+.reflection fieldset { border: 1px solid #64748b; border-radius: 10px; }
+.reflection img { display: block; max-width: 100%; height: auto; margin: 16px 0; }
+.reflection [hidden] { display: none !important; }
+.reflection details { margin-top: 14px; padding: 15px; border: 1px solid #64748b; border-radius: 10px; }
+.reflection summary { cursor: pointer; }
+.reflection-answer { white-space: pre-wrap; }
+.reflection button { margin: 10px 0; }
+.reflection :focus-visible { outline: 3px solid #c4b5fd; outline-offset: 2px; }
