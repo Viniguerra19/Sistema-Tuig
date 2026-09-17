@@ -2,6 +2,7 @@ import { getBadgeClass, openModalById, closeModalById, renderGenericHistory, nor
 import { renderStudentDashboard } from './student.js';
 import { renderFollowupCenter } from './followup.js';
 import { renderAdminReflections } from './reflection.js';
+import { renderMembershipAdmin } from './membership.js';
 
 export async function renderAdminDashboard(email) {
     const role = localStorage.getItem('tuig_role') || 'admin';
@@ -43,22 +44,12 @@ export async function renderAdminDashboard(email) {
                     <button id="btn-self-presence" class="btn-presence">
                         <span>📍</span> Minha Presença
                     </button>
-                    <button id="btn-toggle-brother" class="btn-presence" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1);">
-                        <span>👥</span> Registrar Irmão
-                    </button>
                     ${isMaster ? `
                     <button id="btn-bulk-presence" class="btn-presence" style="background: rgba(99, 102, 241, 0.1); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3);">
                         <span>📋</span> Chamada em Massa
                     </button>` : ''}
                 </div>
 
-                <div id="brother-presence-form" class="hidden presence-input-group" style="margin-top: 15px;">
-                    <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-muted);">E-mail ou nome do Irmão:</label>
-                    <input type="text" id="brother-identifier" placeholder="Email@teste.com ou teste email">
-                    <button id="btn-brother-presence" class="btn-presence" style="margin-top: 15px; padding: 12px; width: 100%;">
-                        Confirmar Presença do Irmão
-                    </button>
-                </div>
 
                 <div id="gps-status" style="margin-top:10px; text-align:center; font-size:0.9rem; color:var(--text-muted);">
                     <div id="gps-dot" class="dot-pulse hidden" style="display:inline-block; width:8px; height:8px; background:#4f46e5; border-radius:50%; margin-right:5px;"></div>
@@ -430,6 +421,12 @@ export async function renderAdminDashboard(email) {
     `;
 
     if (hasFullAdminAccess) {
+        if (isMaster) {
+            const membershipButton = document.createElement('button');
+            membershipButton.className = 'tab-button'; membershipButton.dataset.tab = 'membership'; membershipButton.textContent = 'Vínculos e saídas';
+            document.querySelector('.tab-container').append(membershipButton);
+            const membershipSection = document.createElement('section'); membershipSection.id = 'section-membership'; membershipSection.className = 'hidden'; app.append(membershipSection);
+        }
         const reflectionButton = document.createElement('button');
         reflectionButton.className = 'tab-button'; reflectionButton.dataset.tab = 'reflections'; reflectionButton.textContent = 'Reflexões de sábado';
         document.querySelector('.tab-container').append(reflectionButton);
@@ -683,20 +680,6 @@ export async function renderAdminDashboard(email) {
     });
 
     document.getElementById('btn-self-presence').addEventListener('click', () => markAdminPresence(email));
-
-    document.getElementById('btn-toggle-brother').addEventListener('click', () => {
-        const form = document.getElementById('brother-presence-form');
-        form.classList.toggle('hidden');
-    });
-
-    document.getElementById('btn-brother-presence').addEventListener('click', () => {
-        const brotherId = document.getElementById('brother-identifier').value.trim();
-        if (!brotherId) {
-            showPresenceError("Digite o e-mail ou nome do irmão.");
-            return;
-        }
-        markAdminPresence(brotherId, email);
-    });
 
     const btnBulk = document.getElementById('btn-bulk-presence');
     if (btnBulk) {
@@ -1093,6 +1076,7 @@ async function openUserDetails(emailBusca, nome) {
 }
 
 function switchTab(tab) {
+    document.getElementById('section-membership')?.classList.add('hidden');
     const reflectionSection = document.getElementById('section-reflections');
     if (reflectionSection) reflectionSection.classList.add('hidden');
     const adminSection = document.getElementById('section-admin');
@@ -1116,7 +1100,10 @@ function switchTab(tab) {
 
     const isMaster = (localStorage.getItem('tuig_role') || 'admin') === 'master_admin';
 
-    if (tab === 'reflections' && reflectionSection) {
+    if (tab === 'membership') {
+        const section = document.getElementById('section-membership'); section.classList.remove('hidden');
+        renderMembershipAdmin(section, window.currentUserEmail);
+    } else if (tab === 'reflections' && reflectionSection) {
         reflectionSection.classList.remove('hidden');
         renderAdminReflections(reflectionSection, window.currentUserEmail);
     } else if (tab === 'followup') {
@@ -1365,9 +1352,8 @@ function getDeviceId() {
     return id;
 }
 
-function markAdminPresence(targetId, loggedInEmail = null) {
-    const isBrother = loggedInEmail !== null;
-    const btn = isBrother ? document.getElementById('btn-brother-presence') : document.getElementById('btn-self-presence');
+function markAdminPresence(targetId) {
+    const btn = document.getElementById('btn-self-presence');
     const msg = document.getElementById('gps-msg');
     const dot = document.getElementById('gps-dot');
 
@@ -1376,7 +1362,7 @@ function markAdminPresence(targetId, loggedInEmail = null) {
     dot.classList.remove('hidden');
 
     if (!navigator.geolocation) {
-        showPresenceError("GPS não suportado neste aparelho.", isBrother);
+        showPresenceError("GPS não suportado neste aparelho.");
         return;
     }
 
@@ -1386,7 +1372,7 @@ function markAdminPresence(targetId, loggedInEmail = null) {
                 action: 'registerPresence',
                 data: {
                     studentEmail: targetId,
-                    registeredBy: loggedInEmail || targetId,
+                    registeredBy: targetId,
                     lat: pos.coords.latitude,
                     lon: pos.coords.longitude,
                     deviceId: getDeviceId()
@@ -1398,7 +1384,7 @@ function markAdminPresence(targetId, loggedInEmail = null) {
                     method: 'POST',
                     data: {
                         studentEmail: targetId,
-                        registeredBy: loggedInEmail || targetId,
+                        registeredBy: targetId,
                         lat: pos.coords.latitude,
                         lon: pos.coords.longitude,
                         deviceId: getDeviceId()
@@ -1414,22 +1400,22 @@ function markAdminPresence(targetId, loggedInEmail = null) {
                     else dot.style.background = "#10b981";
                     dot.classList.remove('hidden');
                 } else {
-                    showPresenceError(res.message, isBrother);
+                    showPresenceError(res.message);
                 }
             } catch (err) {
-                showPresenceError("Erro de conexão com o servidor.", isBrother);
+                showPresenceError("Erro de conexão com o servidor.");
             }
         },
         (err) => {
             console.error("Erro GPS:", err);
-            showPresenceError("Erro ao acessar GPS. Verifique as permissões.", isBrother);
+            showPresenceError("Erro ao acessar GPS. Verifique as permissões.");
         },
         { enableHighAccuracy: true, timeout: 10000 }
     );
 }
 
-function showPresenceError(errorText, isBrother) {
-    const btn = isBrother ? document.getElementById('btn-brother-presence') : document.getElementById('btn-self-presence');
+function showPresenceError(errorText) {
+    const btn = document.getElementById('btn-self-presence');
     const msg = document.getElementById('gps-msg');
     btn.disabled = false;
     msg.style.color = "#ef4444";
@@ -2146,6 +2132,7 @@ function renderizarFinanceiro() {
             let link = "";
             let obsAluno = "";
             let description = closedMonth ? 'Sem pagamento registrado — conferir antes de cobrar' : 'Mês em andamento ou futuro — não classificado como atraso';
+            if (u.pausedMonths?.[monthIndex] && !payInfo) { symbol = '⏸'; color = '#94a3b8'; description = 'Mês com afastamento ou desligamento — sem lembrete automático'; }
             
             if (payInfo) {
                 link = payInfo.link || "";

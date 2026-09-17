@@ -1,5 +1,6 @@
 import { getAreaClass, getBadgeClass, openModalById, closeModalById, renderGenericHistory, apiFetch } from './utils.js';
 import { renderStudentReflection } from './reflection.js';
+import { renderMembershipSelf } from './membership.js';
 
 export async function renderStudentDashboard(email, targetContainerId = 'app') {
     const app = document.getElementById(targetContainerId);
@@ -216,6 +217,10 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
     }
 
     // Bind events
+    if (targetContainerId === 'app') {
+        const membership = document.createElement('div');
+        app.append(membership); renderMembershipSelf(membership, email);
+    }
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout && targetContainerId === 'app') {
         btnLogout.addEventListener('click', () => {
@@ -1558,4 +1563,3 @@ function openCourseEnrollModal(email, courseName, priceStr, userName, userTurma)
 }
 
 window.renderStudentCourses = renderStudentCourses;
-

@@ -1,0 +1,82 @@
+.membership {
+    margin-top: 24px;
+    min-width: 0;
+    color: #e2e8f0;
+    text-align: left;
+}
+.membership .card,
+.membership-confirm {
+    padding: 24px;
+    border: 1px solid rgba(148, 163, 184, .2);
+    border-radius: 16px;
+    background: rgba(15, 23, 42, .35);
+    margin: 0 0 16px;
+    overflow-wrap: anywhere;
+}
+.membership summary {
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 650;
+    line-height: 1.5;
+}
+.membership details[open] > summary { margin-bottom: 16px; }
+.membership p { margin: 12px 0 20px; line-height: 1.65; color: #aebdd0; }
+.membership h3, .membership h4 { margin: 0 0 20px; }
+.membership label { display: grid; gap: 9px; font-size: .9rem; margin: 16px 0; }
+.membership input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    padding: 12px 14px;
+    border: 1px solid #475569;
+    border-radius: 10px;
+    background: #111c30;
+    color: #f1f5f9;
+    font: inherit;
+    margin: 0;
+}
+.membership input::placeholder { color: #8293aa; }
+.membership input[name="code"] { max-width: 280px; letter-spacing: .3em; font-size: 1.25rem; }
+.membership-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; margin-top: 20px; }
+.membership button {
+    min-height: 44px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: .9rem;
+    line-height: 1.5;
+    white-space: normal;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    box-shadow: none;
+}
+.membership [data-away], .membership [data-cancel], .membership [data-op="away"] {
+    background: transparent;
+    border: 1px solid #64748b;
+    color: #dbe5f3;
+}
+.membership [data-delete], .membership [data-execute], .membership [data-op="preview"] {
+    background: rgba(239, 68, 68, .08);
+    border: 1px solid rgba(248, 113, 113, .5);
+    color: #fca5a5;
+}
+.membership [data-op] { margin: 6px 4px 6px 0; }
+.membership button:hover:not(:disabled) { filter: brightness(1.15); }
+.membership button:disabled { opacity: .55; cursor: wait; }
+.membership :is(button,input,summary):focus-visible { outline: 2px solid #a5b4fc; outline-offset: 3px; }
+.membership-confirm { margin-top: 24px; background: rgba(15,23,42,.65); }
+.membership-confirm form { display: grid; gap: 4px; }
+.membership [role="status"]:empty, .membership [hidden] { display: none !important; }
+.membership [role="status"]:not(:empty) {
+    padding: 12px 16px;
+    border-left: 3px solid #a5b4fc;
+    background: rgba(129,140,248,.08);
+    border-radius: 6px;
+    margin: 16px 0 0;
+}
+@media (max-width: 600px) {
+    .membership .card, .membership-confirm { padding: 16px; }
+    .membership-actions { flex-direction: column; }
+    .membership-actions button, .membership [data-op] { width: 100%; margin-right: 0; }
+    .membership input[name="code"] { max-width: none; }
+}

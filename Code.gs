@@ -15,6 +15,225 @@ const NOME_ABA_LIVROS = "Livros";
 const NOME_ABA_EMPRESTIMOS = "Empréstimos";
 const NOME_ABA_CURSO_TUIG = "curso tuig";
 
+// Ciclo de vínculo: o histórico de afastamentos permanece separado do cadastro.
+const MEMBERSHIP_SHEET = 'Histórico de vínculos';
+const MEMBERSHIP_HEADERS = ['Email', 'Situação', 'Início', 'Fim', 'Responsável', 'Observação'];
+function memberInactive(value) { return ['inativo', 'afastado', 'desligado', 'exclusao pendente'].includes(fuNorm(value)); }
+function memberRecord(email) {
+  const rows = fuRows(SpreadsheetApp.openById(SPREADSHEET_ID), NOME_ABA_USUARIOS);
+  const index = rows.findIndex((r, i) => i > 0 && fuEmail(r[0]) === fuEmail(email));
+  if (index < 1) throw new Error('Cadastro não encontrado.');
+  return { row: index + 1, values: rows[index] };
+}
+function memberMaster(email) {
+  if (getUserRole(email) !== 'master_admin') throw new Error('Somente a administração principal pode gerenciar vínculos.');
+}
+function memberPeriods(ss) {
+  const map = {};
+  const rows = fuRows(ss, MEMBERSHIP_SHEET);
+  if (rows.length && JSON.stringify(rows[0]) !== JSON.stringify(MEMBERSHIP_HEADERS)) throw new Error('A aba Histórico de vínculos tem outro formato. Confira os cabeçalhos antes de continuar.');
+  rows.slice(1).forEach(r => {
+    const email = fuEmail(r[0]);
+    if (!map[email]) map[email] = [];
+    map[email].push({ from: new Date(r[2]), to: r[3] ? new Date(r[3]) : null });
+  });
+  return map;
+}
+function memberExcluded(periods, email, value, month) {
+  const date = value instanceof Date ? value : new Date(String(value) + (String(value).length === 7 ? '-01T12:00:00' : 'T12:00:00'));
+  const start = new Date(date.getFullYear(), date.getMonth(), month ? 1 : date.getDate());
+  const end = new Date(date.getFullYear(), date.getMonth() + (month ? 1 : 0), month ? 0 : date.getDate(), 23, 59, 59);
+  return (periods[fuEmail(email)] || []).some(p => p.from <= end && (!p.to || p.to >= start));
+}
+function memberHash(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value).map(b => ('0' + ((b + 256) % 256).toString(16)).slice(-2)).join('');
+}
+function memberList(email) {
+  memberMaster(email);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID), history = fuRows(ss, MEMBERSHIP_SHEET);
+  return fuRows(ss, NOME_ABA_USUARIOS).slice(1).filter(r => fuEmail(r[0])).map(r => ({ email: fuEmail(r[0]), name: fuText(r[1]), turma: fuText(r[5]),
+    status: fuText(r[8]) || 'Ativo', notes: fuText((history.filter(h => fuEmail(h[0]) === fuEmail(r[0])).pop() || [])[5]) }));
+}
+function memberAuthorize(data) {
+  const self = fuEmail(data.email) === fuEmail(data.target);
+  if (!['away', 'activate', 'requestDeletion', 'delete'].includes(data.operation)) throw new Error('Operação inválida.');
+  const target = memberRecord(data.target);
+  if (data.operation === 'requestDeletion' && !self) throw new Error('O próprio titular deve confirmar o pedido de exclusão.');
+  if (data.operation === 'away' && fuNorm(target.values[8]) === 'exclusao pendente') throw new Error('Há uma exclusão solicitada. Conclua a conferência ou reative o cadastro para cancelar o pedido.');
+  if (data.operation === 'activate' && PropertiesService.getScriptProperties().getProperty('MEMBER_PURGE_' + memberHash(fuEmail(data.target)))) throw new Error('A exclusão dos anexos já começou. Conclua a exclusão antes de criar um novo cadastro.');
+  if (!self || !['away', 'requestDeletion'].includes(data.operation)) memberMaster(data.email);
+  if (self && ['away','requestDeletion'].includes(data.operation) && !getUserRole(data.email)) throw new Error('Entre com um cadastro ativo para solicitar esta operação.');
+  if (self && fuText(target.values[2]) === 'master_admin' && data.operation !== 'activate') throw new Error('Você está usando sua própria conta master admin. Peça a outro master admin para gerenciar seu afastamento ou exclusão.');
+  return target;
+}
+function memberChallenge(data) {
+  memberAuthorize(data);
+  const props = PropertiesService.getScriptProperties(), key = 'MEMBER_CODE_' + memberHash(fuEmail(data.email));
+  const old = JSON.parse(props.getProperty(key) || 'null');
+  if (old && Date.now() - old.created < 60000) throw new Error('Aguarde um minuto antes de solicitar outro código.');
+  const id = Utilities.getUuid(), code = String(parseInt(memberHash(Utilities.getUuid()).slice(0, 12), 16) % 1000000).padStart(6, '0');
+  const payload = { email: fuEmail(data.email), target: fuEmail(data.target), operation: data.operation, notes: fuText(data.notes).slice(0,1000), fingerprint: fuText(data.fingerprint) };
+  props.setProperty(key, JSON.stringify({ id, created: Date.now(), attempts: 0, hash: memberHash(id + code), payload }));
+  MailApp.sendEmail(payload.email, 'TUIG — confirmação de vínculo', 'Código: ' + code + '\nOperação: ' + payload.operation + '\nCadastro: ' + payload.target + '\nVálido por dez minutos.');
+  return { id };
+}
+function memberSetStatus(data) {
+  const record = memberAuthorize(data), ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(MEMBERSHIP_SHEET);
+  if (!sheet) { sheet = ss.insertSheet(MEMBERSHIP_SHEET); sheet.appendRow(MEMBERSHIP_HEADERS); }
+  memberPeriods(ss); // Não gravar sobre uma aba com estrutura incompatível.
+  const status = { away: 'Afastado', activate: 'Ativo', requestDeletion: 'Exclusão pendente' }[data.operation];
+  if (record.values[8] === status) return { status };
+  const rows = sheet.getDataRange().getValues(), now = new Date();
+  rows.slice(1).forEach((r, i) => {
+    if (fuEmail(r[0]) === data.target && !r[3]) sheet.getRange(i + 2, 4).setValue(now);
+  });
+  if (status !== 'Ativo') sheet.appendRow([data.target, status, now, '', data.email, /^[=+@-]/.test(data.notes) ? "'" + data.notes : data.notes]);
+  ss.getSheetByName(NOME_ABA_USUARIOS).getRange(record.row, 9).setValue(status);
+  return { status };
+}
+function memberConfirm(data) {
+  return tuigPresenceWrite(() => {
+    const props = PropertiesService.getScriptProperties(), key = 'MEMBER_CODE_' + memberHash(fuEmail(data.email));
+    const challenge = JSON.parse(props.getProperty(key) || 'null');
+    if (!challenge || challenge.id !== data.challenge || Date.now() - challenge.created > 600000 || challenge.attempts >= 5) throw new Error('Código expirado. Solicite outro.');
+    challenge.attempts++; props.setProperty(key, JSON.stringify(challenge));
+    if (challenge.hash !== memberHash(challenge.id + fuText(data.code))) throw new Error('Código incorreto.');
+    memberAuthorize(challenge.payload);
+    props.deleteProperty(key); // código de uso único, inclusive se uma exclusão falhar parcialmente.
+    return challenge.payload.operation === 'delete' ? memberDelete(challenge.payload) : memberSetStatus(challenge.payload);
+  });
+}
+
+// A conferência percorre todas as abas, inclusive cursos, sessões e eventos.
+function memberDeletionPlan(email) {
+  const record = memberRecord(email), target = fuEmail(email), name = fuNorm(record.values[1]);
+  const books = [SPREADSHEET_ID, SPREADSHEET_BIBLIOTECA_ID].map(id => SpreadsheetApp.openById(id));
+  const roster = fuRows(books[0], NOME_ABA_USUARIOS);
+  const uniqueName = !!name && roster.slice(1).filter(r => fuNorm(r[1]) === name).length === 1;
+  const tokens = new Set([target]), fileIds = new Set(), issues = [], entries = [];
+  const wa = fuRows(books[0], 'WhatsApp Usuários');
+  wa.slice(1).filter(r => fuEmail(r[0]) === target).forEach(r => {
+    [r[2], r[3]].forEach(v => { if (fuText(v)) tokens.add(fuText(v)); });
+    const digits = fuText(r[2]).replace(/\D/g,''); if (digits.length >= 7) tokens.add(digits);
+  });
+  const tables = books.flatMap(book => book.getSheets().map(sheet => {
+    const range = sheet.getDataRange(), rows = range.getValues();
+    const formulas = typeof range.getFormulas === 'function' ? range.getFormulas() : [];
+    const rich = typeof range.getRichTextValues === 'function' ? range.getRichTextValues() : [];
+    const links = rows.map((r,i) => [...(formulas[i] || []), ...(rich[i] || []).flatMap(cell => cell ? cell.getRuns().map(run => run.getLinkUrl() || '') : [])].join(' '));
+    return { book: book.getId(), sheet, name: sheet.getName(), rows, links };
+  }));
+  const tokenMatch = value => {
+    const text = fuText(value).toLowerCase();
+    return [...tokens].some(token => {
+      const escaped = token.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const boundary = token.includes('@') && !token.endsWith('@lid') ? '[^a-z0-9._%+@-]' : '[^a-z0-9]';
+      return new RegExp('(^|' + boundary + ')' + escaped + '($|' + boundary + ')', 'i').test(text);
+    });
+  };
+  const leaves = value => {
+    if (typeof value !== 'string') return [value];
+    try {
+      const parsed = JSON.parse(value);
+      const walk = v => v && typeof v === 'object' ? Object.values(v).flatMap(walk) : [v];
+      return walk(parsed);
+    } catch (_) { return [value]; }
+  };
+  let changed = true;
+  while (changed) {
+  changed = false;
+  for (const table of tables) {
+    const headers = (table.rows[0] || []).map(fuNorm);
+    table.rows.slice(1).forEach((row, index) => {
+      if (entries.some(e => e.book === table.book && e.name === table.name && e.row === index + 2)) return;
+      const emailCols = headers.map((h, i) => /^(e-?mail|email do aluno|email aluno|email medium)$/.test(h) ? i : -1).filter(i => i >= 0);
+      const owners = emailCols.map(i => fuEmail(row[i])).filter(Boolean);
+      const hit = row.some(v => tokenMatch(v));
+      const flattened = row.flatMap(leaves);
+      const nameHit = flattened.some(v => typeof v === 'string' && fuNorm(v) === name && name);
+      if (!hit && !nameHit) return;
+      if ([NOME_ABA_LIVROS,NOME_ABA_AGENDA,'Modulos','Módulos','Lições'].includes(table.name) && !owners.includes(target)) {
+        issues.push(table.name + ', linha ' + (index + 2) + ': referência em conteúdo compartilhado; confira antes de remover.'); return;
+      }
+      if (!owners.length && roster.slice(1).some(r => fuEmail(r[0]) !== target && fuEmail(r[0]) && row.some(v => fuText(v).toLowerCase().includes(fuEmail(r[0]))))) {
+        issues.push(table.name + ', linha ' + (index + 2) + ': registro contém dados de mais de uma pessoa.'); return;
+      }
+      if (!owners.length && nameHit && roster.slice(1).some(r => fuEmail(r[0]) !== target && fuNorm(r[1]) && fuNorm(r[1]) !== name && flattened.some(v => fuNorm(v) === fuNorm(r[1])))) {
+        issues.push(table.name + ', linha ' + (index + 2) + ': nomes de várias pessoas no mesmo registro.'); return;
+      }
+      if ((owners.length && owners.some(o => o !== target)) || (nameHit && !hit && !uniqueName)) {
+        // Não remover a linha de outra pessoa nem decidir por homônimos.
+        if (hit || !owners.length) issues.push(table.name + ', linha ' + (index + 2) + ': vínculo compartilhado ou nome ambíguo.');
+        return;
+      }
+      entries.push({ book: table.book, name: table.name, row: index + 2, values: row, links: table.links[index + 1] });
+      changed = true;
+      headers.forEach((h,i) => { if (/^(id|chave)$/.test(h) && /^[a-zA-Z0-9_:@-]{16,}$/.test(fuText(row[i]))) tokens.add(fuText(row[i])); });
+      if (table.name === NOME_ABA_EMPRESTIMOS && ['ativo','solicitado','atrasado'].includes(fuNorm(row[9]))) issues.push('Há empréstimo de livro em aberto. Registre a devolução ou o cancelamento antes da exclusão.');
+      [...row, table.links[index + 1]].forEach((v, i) => {
+        const text = fuText(v), h = headers[i] || '';
+        if (/^(foto id|drive file id|file id|fileid|arquivo id|id arquivo)$/.test(h) && /^[a-zA-Z0-9_-]{10,}$/.test(text)) fileIds.add(text);
+        for (const m of text.matchAll(/https:\/\/(?:drive|docs)\.google\.com\/(?:file\/d\/|[^\s"']*[?&]id=)([a-zA-Z0-9_-]+)/g)) fileIds.add(m[1]);
+      });
+    });
+  }
+  }
+  // Arquivos de outras pessoas ou planilhas de origem nunca são apagados.
+  for (const id of fileIds) {
+    if ([SPREADSHEET_ID, SPREADSHEET_BIBLIOTECA_ID].includes(id)) issues.push('Uma referência aponta para a própria planilha.');
+    for (const table of tables) table.rows.slice(1).forEach((r, i) => {
+      if ([...r,table.links[i+1]].some(v => fuText(v).includes(id)) && !entries.some(e => e.book === table.book && e.name === table.name && e.row === i + 2)) issues.push('Anexo compartilhado na aba ' + table.name + ', linha ' + (i + 2) + '.');
+    });
+  }
+  const sheets = [];
+  entries.forEach(e => { let s = sheets.find(s => s.book === e.book && s.name === e.name); if (!s) { s = { book:e.book, name:e.name, count:0 }; sheets.push(s); } s.count++; });
+  return { entries, fileIds: [...fileIds], issues: [...new Set(issues)], sheets, rows: entries.length, files: fileIds.size,
+    fingerprint: memberHash(JSON.stringify({entries, files:[...fileIds]})) };
+}
+function memberPreview(data) {
+  memberMaster(data.email);
+  memberAuthorize({ ...data, operation:'delete' });
+  const plan = memberDeletionPlan(data.target);
+  return { rows: plan.rows, files: plan.files, issues: plan.issues, sheets: plan.sheets, fingerprint: plan.fingerprint };
+}
+function memberDelete(data) {
+  memberAuthorize(data);
+  const plan = memberDeletionPlan(data.target);
+  if (plan.issues.length) throw new Error('Existem vínculos ambíguos. Confira o plano antes de excluir.');
+  if (plan.fingerprint !== data.fingerprint) throw new Error('Os registros mudaram. Reabra a conferência antes de excluir.');
+  // Bloqueia o acesso também quando a exclusão foi iniciada diretamente pelo master.
+  SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(NOME_ABA_USUARIOS).getRange(memberRecord(data.target).row, 9).setValue('Exclusão pendente');
+  const props = PropertiesService.getScriptProperties(), progressKey = 'MEMBER_PURGE_' + memberHash(data.target);
+  const removedFiles = JSON.parse(props.getProperty(progressKey) || '[]');
+  // Inspeciona todos os anexos antes de apagar o primeiro: nunca exclui pastas ou planilhas.
+  for (const id of plan.fileIds.filter(id => !removedFiles.includes(id))) {
+    const metadata = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=mimeType,capabilities(canDelete)&supportsAllDrives=true', {
+      headers: { Authorization:'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions:true
+    });
+    if (metadata.getResponseCode() !== 200) throw new Error('Um anexo não está acessível para conferência. Nenhum novo arquivo foi excluído.');
+    const file = JSON.parse(metadata.getContentText());
+    if (!file.capabilities || !file.capabilities.canDelete || ['application/vnd.google-apps.folder','application/vnd.google-apps.spreadsheet'].includes(file.mimeType)) throw new Error('Referência compartilhada, pasta ou planilha encontrada entre os anexos. Exclusão bloqueada.');
+  }
+  for (const id of plan.fileIds) {
+    if (removedFiles.includes(id)) continue;
+    const response = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?supportsAllDrives=true', {
+      method:'delete', headers: { Authorization:'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions:true
+    });
+    if (![200,204].includes(response.getResponseCode())) throw new Error('Não foi possível confirmar a exclusão de um anexo do Drive. Os registros da planilha foram mantidos; confira e tente novamente.');
+    removedFiles.push(id); props.setProperty(progressKey, JSON.stringify(removedFiles));
+  }
+  // Cadastro fica por último para permitir repetir a conferência se houver falha.
+  const groups = plan.sheets.sort((a,b) => Number(a.name === NOME_ABA_USUARIOS) - Number(b.name === NOME_ABA_USUARIOS));
+  groups.forEach(g => {
+    const sheet = SpreadsheetApp.openById(g.book).getSheetByName(g.name);
+    plan.entries.filter(e => e.book === g.book && e.name === g.name).sort((a,b) => b.row-a.row).forEach(e => sheet.deleteRow(e.row));
+  });
+  PropertiesService.getScriptProperties().deleteProperty('MEMBER_CODE_' + memberHash(data.target));
+  props.deleteProperty(progressKey);
+  return { deleted: true };
+}
+
 const REFLECTION_SHEET = 'Reflexões Sábado';
 const TUIG_TURMAS = ['sexta', 'sabado', 'domingo'];
 // Minutos desde 00:00: aula de domingo das 10h até antes de 12h.
@@ -58,7 +277,7 @@ function reflectionStudent(email) {
   const normalized = fuEmail(email);
   const rows = fuRows(SpreadsheetApp.openById(SPREADSHEET_ID), NOME_ABA_USUARIOS);
   const row = rows.slice(1).find(r => fuEmail(r[0]) === normalized && normalized);
-  if (!row || fuNorm(row[8]) === 'inativo' || !/(^|\W)sabado(\W|$)/.test(fuNorm(row[5]))) {
+  if (!row || memberInactive(row[8]) || !/(^|\W)sabado(\W|$)/.test(fuNorm(row[5]))) {
     throw new Error('Esta atividade está disponível somente para a turma de sábado.');
   }
   return { email: normalized, name: fuText(row[1]) };
@@ -179,6 +398,7 @@ function fuHistory(rows, allowed, tz) {
   }));
 }
 function fuBuildData(ss, users, params, isMaster) {
+  const periods = memberPeriods(ss);
   [NOME_ABA_USUARIOS, NOME_ABA_AGENDA, NOME_ABA_PRESENCAS, ...(isMaster ? [NOME_ABA_MENSALIDADES] : [])].forEach(name => {
     if (!ss.getSheetByName(name)) throw new Error('Aba ' + name + ' não encontrada. Não é seguro calcular pendências sem esses dados.');
   });
@@ -245,10 +465,10 @@ function fuBuildData(ss, users, params, isMaster) {
       phoneIssue: (phoneSet && phoneSet.size > 1) || (candidate && phoneOwners.get(candidate).size > 1) ? 'Telefone ambíguo: há múltiplos números ou pessoas no vínculo. Confira o cadastro.' : 'Telefone internacional não vinculado a este e-mail na aba WhatsApp Usuários.', joinedKnown: !!start };
     const missing = [...new Set(events.filter(e => {
       const expected = tuigEventApplies(e.turma, turma);
-      return expected && (!start || e.day >= start) && !presence.has(email + ':' + e.day) && !excused.has(email + ':' + e.day) && !reviewing.has(email + ':' + e.day);
+      return expected && !memberExcluded(periods, email, e.day, false) && (!start || e.day >= start) && !presence.has(email + ':' + e.day) && !excused.has(email + ':' + e.day) && !reviewing.has(email + ':' + e.day);
     }).map(e => e.day))];
     missing.forEach(day => cases.push({ ...base, topic: 'presenca', reference: day, reason: 'Sem presença registrada' }));
-    if (isMaster && (!start || start.slice(0, 7) <= month)) {
+    if (isMaster && !memberExcluded(periods, email, month, true) && (!start || start.slice(0, 7) <= month)) {
       const paid = payments.get(email) || new Set();
       if (!['pago', 'aprovado', 'aprovada', 'isento'].some(s => paid.has(s)) && !paid.has('pendente')) {
         cases.push({ ...base, topic: 'mensalidade', reference: month, reason: 'Sem pagamento registrado' });
@@ -341,6 +561,8 @@ function doGet(e) {
   const action = e.parameter.action;
   
   try {
+    const actor = e.parameter.actorEmail || e.parameter.adminEmail || e.parameter.email;
+    if (action !== 'login' && (!actor || !getUserRole(actor))) throw new Error('Acesso encerrado ou cadastro inativo.');
     switch (action) {
       case 'getReflection':
         return createJsonResponse({ status: 'success', data: reflectionGet(e.parameter) });
@@ -403,6 +625,12 @@ function doPost(e) {
   const action = payload.action;
   
   try {
+    if (action === 'membershipChallenge') return createJsonResponse({ status:'success', data:tuigPresenceWrite(() => memberChallenge(payload.data || {})) });
+    if (action === 'membershipConfirm') return createJsonResponse({ status:'success', data:memberConfirm(payload.data || {}) });
+    if (action === 'membershipList') return createJsonResponse({ status:'success', data:memberList((payload.data || {}).email) });
+    if (action === 'membershipPreview') return createJsonResponse({ status:'success', data:memberPreview(payload.data || {}) });
+    const actor = (payload.data || {}).actorEmail || (payload.data || {}).adminEmail || (payload.data || {}).email || (payload.data || {}).registeredBy;
+    if (!actor || !getUserRole(actor)) throw new Error('Acesso encerrado ou cadastro inativo.');
     switch (action) {
       case 'saveReflection':
         return createJsonResponse({ status: 'success', data: reflectionSave(payload.data || {}) });
@@ -560,7 +788,7 @@ function handleGetBulkPresenceList(dateStr, turmaFilter) {
 
        // Ignora usuários inativos (Coluna I - índice 8)
        const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
-       if (status === "inativo") continue;
+       if (memberInactive(status)) continue;
        
        const uNome = userData[i][1];
        const uTurma = userData[i][5] ? userData[i][5].toString() : "";
@@ -847,7 +1075,7 @@ function getUserRole(email) {
     if (data[i][0].toString().toLowerCase().trim() === searchEmail) {
       // Verifica se o usuário está inativo (Coluna I - índice 8)
       const status = data[i][8] ? data[i][8].toString().toLowerCase().trim() : "";
-      if (status === "inativo") return null;
+      if (memberInactive(status)) return null;
       
       return data[i][2]; // Coluna C (Permissão)
     }
@@ -857,6 +1085,7 @@ function getUserRole(email) {
 
 function getUserData(email) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const periods = memberPeriods(ss);
   const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
   const ritualSheet = ss.getSheetByName(NOME_ABA_RITUAIS);
   
@@ -869,7 +1098,7 @@ function getUserData(email) {
     if (userData[i][0].toString().toLowerCase().trim() === searchEmail) {
       // Verifica se o usuário está inativo (Coluna I - índice 8)
       const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
-      if (status === "inativo") break;
+      if (memberInactive(status)) break;
       
       user = {
         email: userData[i][0],
@@ -1108,7 +1337,7 @@ function getUserData(email) {
         if (evtTime <= hojeTime) {
             const ehDaTurma = tuigEventApplies(evtTurma, turmaNormalizada);
             
-            if (ehDaTurma) {
+            if (ehDaTurma && !memberExcluded(periods, searchEmail, evtDate, false)) {
                 eventosPassados.push({ data: evtDate, nome: evtNome, rawDate: evtDate });
             }
         }
@@ -1218,7 +1447,7 @@ function getAdminData(adminEmail) {
 
     // Ignora usuários inativos (Coluna I - índice 8)
     const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
-    if (status === "inativo") continue;
+    if (memberInactive(status)) continue;
 
     const userCursosRaw = userData[i][3] ? userData[i][3].toString().split(",").map(c => c.trim()) : [];
     const userCursosLower = userCursosRaw.map(c => c.toLowerCase().trim());
@@ -1263,6 +1492,7 @@ function registerPresenceLocked(presenceData) {
   }
 
   const { studentEmail, registeredBy, lat, lon, deviceId } = presenceData;
+  if (fuEmail(String(registeredBy || '').replace(/^WhatsApp:\s*/i, '')) !== fuEmail(studentEmail)) return { status:'error', message:'O registro individual permite apenas a própria presença. Use a chamada administrativa para correções.' };
   
   const userData = ss.getSheetByName(NOME_ABA_USUARIOS).getDataRange().getValues();
   let studentName = "Não cadastrado";
@@ -1270,7 +1500,7 @@ function registerPresenceLocked(presenceData) {
   for(let i=1; i < userData.length; i++) {
     if(userData[i][0].toString().toLowerCase().trim() === studentEmail.toLowerCase().trim()) {
       const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
-      if (status === "inativo") {
+      if (memberInactive(status)) {
         isActive = false;
       } else {
         studentName = userData[i][1];
@@ -1342,6 +1572,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 function getDashboardStats() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const periods = memberPeriods(ss);
   
   const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
   const userData = userSheet.getDataRange().getValues();
@@ -1354,7 +1585,7 @@ function getDashboardStats() {
     
     // Ignora usuários inativos (Coluna I - índice 8)
     const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
-    if (status === "inativo") continue;
+    if (memberInactive(status)) continue;
     
     statsTurma.total++;
     let turmaRaw = fuNorm(userData[i][5]);
@@ -1389,7 +1620,7 @@ function getDashboardStats() {
         let evtTurma = fuNorm(agendaData[i][2]); // Coluna C
         let dateString = evtDate.toLocaleDateString("pt-BR");
         
-        const expected = Object.values(rankingMediuns).filter(m => tuigEventApplies(evtTurma, m.turma)).length;
+        const expected = Object.keys(rankingMediuns).filter(email => tuigEventApplies(evtTurma, rankingMediuns[email].turma) && !memberExcluded(periods, email, evtDate, false)).length;
         if (eventosMapeados.some(evt => evt.data === dateString && evt.turma === evtTurma)) continue;
         
         eventosMapeados.push({
@@ -1402,7 +1633,7 @@ function getDashboardStats() {
         
         for (let medEmail in rankingMediuns) {
             let mTurma = rankingMediuns[medEmail].turma;
-            const deveParticipar = tuigEventApplies(evtTurma, mTurma);
+            const deveParticipar = tuigEventApplies(evtTurma, mTurma) && !memberExcluded(periods, medEmail, evtDate, false);
             
             if (deveParticipar) {
                 rankingMediuns[medEmail].esperados++;
@@ -1459,7 +1690,7 @@ function getDashboardStats() {
     let totalFaltas = 0;
     
     for (let evt of eventosMapeados) {
-      const deveParticipar = tuigEventApplies(evt.turma, mTurma);
+      const deveParticipar = tuigEventApplies(evt.turma, mTurma) && !memberExcluded(periods, email, new Date(evt.timestamp), false);
       
       if (deveParticipar) {
         const key = email + "_" + evt.data;
@@ -1515,7 +1746,7 @@ function getDashboardStats() {
   
   let recentes = eventosMapeados.slice(-10);
   for (let evt of recentes) {
-    const pCount = Object.keys(rankingMediuns).filter(email => tuigEventApplies(evt.turma, rankingMediuns[email].turma) && userPresences.has(email + '_' + evt.data)).length;
+    const pCount = Object.keys(rankingMediuns).filter(email => tuigEventApplies(evt.turma, rankingMediuns[email].turma) && !memberExcluded(periods, email, new Date(evt.timestamp), false) && userPresences.has(email + '_' + evt.data)).length;
     
     const partesData = evt.data.split('/');
     labelsEvolucao.push(partesData[0] + '/' + partesData[1]);
@@ -1638,7 +1869,7 @@ function handleGetRitualsReport(requesterEmail) {
 
       // Ignora usuários inativos (Coluna I - índice 8)
       const status = userData[i][8] ? userData[i][8].toString().toLowerCase().trim() : "";
-      if (status === "inativo") continue;
+      if (memberInactive(status)) continue;
 
       const nome = userData[i][1].toString().trim();
       const turma = userData[i][5] ? userData[i][5].toString().trim() : "";
@@ -1916,6 +2147,7 @@ function handleGetFinancialReport(adminEmail) {
     const sheet = getMensalidadesSheet(ss);
     const payData = sheet.getDataRange().getValues();
     const currentYear = new Date().getFullYear();
+    const periods = memberPeriods(ss);
     
     const paymentsMap = {};
     const pendingList = [];
@@ -1960,6 +2192,7 @@ function handleGetFinancialReport(adminEmail) {
         email: u.email,
         nome: u.nome,
         turma: u.turma,
+        pausedMonths: Array.from({length:12}, (_, i) => memberExcluded(periods, emailLower, new Date(currentYear, i, 1), true)),
         payments: paymentsMap[emailLower] || {}
       };
     });

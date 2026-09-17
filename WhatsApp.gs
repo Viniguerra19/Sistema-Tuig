@@ -420,10 +420,7 @@ function waProcessIncomingMessage(payload, identity) {
   let session = waGetSession(identity.key);
 
   if (link && !waGetUserRecordByEmail(link.email)) {
-    waDeactivateLink(link.rowIndex);
-    waClearSession(identity.key);
-    link = null;
-    session = { state: "IDLE", data: {}, rowIndex: -1 };
+    return; // Preserva o vínculo para reativação, mas não atende usuários inativos.
   }
 
   if (link) waTouchLinkedUser(link.rowIndex, identity);
@@ -2149,7 +2146,10 @@ function waIsSenderListedInSheet(identity) {
     if (status === "BLOQUEADO" || status === "INATIVO") continue;
     const samePhone = Boolean(normalizedPhone && rowPhone && rowPhone === normalizedPhone);
     const sameLid = Boolean(lid && rowLid && rowLid === lid);
-    if (samePhone || sameLid) return true;
+    if (samePhone || sameLid) {
+      if (values[i][0] && !waGetUserRecordByEmail(values[i][0])) return false;
+      return true;
+    }
   }
   return false;
 }
@@ -2362,7 +2362,7 @@ function waGetUserRecordByEmail(email) {
   for (let i = 1; i < values.length; i++) {
     if (values[i][0].toString().toLowerCase().trim() === target) {
       const status = values[i][8] ? waNormalizeCommand(values[i][8]) : "";
-      if (status === "INATIVO") return null;
+      if (memberInactive(status)) return null;
       return {
         email: target,
         nome: values[i][1] ? values[i][1].toString() : target,
