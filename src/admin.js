@@ -420,7 +420,7 @@ export async function renderAdminDashboard(email) {
         </section>
     `;
 
-    if (hasFullAdminAccess) {
+    if (hasFullAdminAccess && isMaster) {
         if (isMaster) {
             const membershipButton = document.createElement('button');
             membershipButton.className = 'tab-button'; membershipButton.dataset.tab = 'membership'; membershipButton.textContent = 'Vínculos e saídas';
@@ -1076,6 +1076,7 @@ async function openUserDetails(emailBusca, nome) {
 }
 
 function switchTab(tab) {
+    if (['followup', 'reflections'].includes(tab) && localStorage.getItem('tuig_role') !== 'master_admin') return;
     document.getElementById('section-membership')?.classList.add('hidden');
     const reflectionSection = document.getElementById('section-reflections');
     if (reflectionSection) reflectionSection.classList.add('hidden');
