@@ -32,7 +32,7 @@ async function confirmAction(root, data, finished) {
 }
 export function renderMembershipSelf(root, email) {
     root.classList.add('membership');
-    root.innerHTML = '<details class="card"><summary>Meu vínculo com o terreiro</summary><p>O afastamento bloqueia seu acesso e mantém o histórico para um possível retorno. A exclusão definitiva apaga os dados e anexos vinculados após conferência da administração.</p><div class="membership-actions"><button data-away>Solicitar afastamento</button><button data-delete>Solicitar exclusão definitiva dos meus dados</button></div><p role="status"></p><div data-confirm></div></details>';
+    root.innerHTML = '<details class="card membership-self"><summary>Afastamento e exclusão dos meus dados</summary><p>Você pode solicitar seu afastamento ou a exclusão dos seus dados. Para confirmar, enviaremos um código ao seu e-mail cadastrado.</p><p>O afastamento bloqueia seu acesso e mantém o histórico para um possível retorno. O pedido de exclusão também bloqueia seu acesso; a administração confere e realiza a exclusão definitiva dos dados e anexos vinculados.</p><div class="membership-actions"><button data-away>Solicitar afastamento</button><button data-delete>Solicitar exclusão definitiva dos meus dados</button></div><p role="status" aria-live="polite"></p><div data-confirm></div></details>';
     const request = operation => {
         if (!window.confirm(operation === 'requestDeletion' ? 'Solicitar a exclusão definitiva? Seu acesso será bloqueado após confirmar o código. A administração receberá o pedido para conferência.' : 'Confirmar seu afastamento? Seu acesso será bloqueado e o histórico será preservado.')) return;
         root.querySelector('[data-confirm]').replaceChildren();

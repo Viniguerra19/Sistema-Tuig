@@ -59,6 +59,8 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
                 </div>
                 ` : ''}
 
+                <div data-membership-self></div>
+
                 <!-- Controle Financeiro / Mensalidades -->
                 <div id="reflection-student-container" hidden></div>
                 <div id="payment-card-container"></div>
@@ -217,10 +219,7 @@ export async function renderStudentDashboard(email, targetContainerId = 'app') {
     }
 
     // Bind events
-    if (targetContainerId === 'app') {
-        const membership = document.createElement('div');
-        app.append(membership); renderMembershipSelf(membership, email);
-    }
+    renderMembershipSelf(app.querySelector('[data-membership-self]'), email);
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout && targetContainerId === 'app') {
         btnLogout.addEventListener('click', () => {
