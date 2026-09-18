@@ -1,14 +1,24 @@
 /**
- * TUIG - Frontend conversacional via WhatsApp / W-API
+ * TUIG - Frontend conversacional via WhatsApp
  *
- * Credenciais obrigatórias em Configurações do projeto > Propriedades do script:
+ * Provedor legado (W-API), em Configurações do projeto > Propriedades do script:
  *   WAPI_INSTANCE_ID
  *   WAPI_TOKEN
  *   WAPI_WEBHOOK_SECRET
  *   WAPI_WEBHOOK_URL (URL pública da implantação, terminada em /exec)
  *
- * O webhook de mensagens recebidas deve apontar para:
- *   URL_DO_WEB_APP?wa_secret=VALOR_DE_WAPI_WEBHOOK_SECRET
+ * Provedor oficial Meta Cloud API:
+ *   WHATSAPP_PROVIDER=meta
+ *   META_PHONE_NUMBER_ID
+ *   META_ACCESS_TOKEN (token permanente de sistema, nunca o token do frontend)
+ *   META_VERIFY_TOKEN (usado somente na validação inicial do webhook)
+ *   META_WEBHOOK_SECRET (segredo aleatório usado na URL do callback)
+ *   META_WEBHOOK_URL (URL pública /exec; aceita WAPI_WEBHOOK_URL como fallback)
+ *   META_GRAPH_VERSION (por exemplo, v23.0; use a versão disponível no painel Meta)
+ *   META_WABA_ID (opcional; usado por configureWhatsAppReceivedWebhook)
+ *
+ * Para a Meta, o callback deve apontar para:
+ *   META_WEBHOOK_URL?meta_secret=VALOR_DE_META_WEBHOOK_SECRET
  */
 
 const WA_USERS_SHEET = "WhatsApp Usuários";
@@ -57,6 +67,7 @@ function configureWhatsAppReceivedWebhook() {
   waEnsureSupportSheets();
   waEnsureActivationEditTrigger();
   const config = waGetConfig();
+  if (config.provider === "meta") return configureMetaWhatsAppWebhook(config);
   const webAppUrl = config.webhookUrl;
   if (!webAppUrl) {
     throw new Error("Defina WAPI_WEBHOOK_URL nas Propriedades do script com a URL pública /exec da implantação.");
@@ -79,6 +90,33 @@ function configureWhatsAppReceivedWebhook() {
     callbackUrl: webAppUrl + "?wa_secret=<SEGREDO_CONFIGURADO>",
     wapiResponse: response,
     activatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Confere o callback da Meta e, quando META_WABA_ID foi informado, assina o
+ * aplicativo no WhatsApp Business Account. A URL e o META_VERIFY_TOKEN ainda
+ * precisam ser cadastrados no painel Meta for Developers, na seção Webhooks.
+ */
+function configureMetaWhatsAppWebhook(config) {
+  const webAppUrl = config.webhookUrl;
+  if (!webAppUrl) throw new Error("Defina META_WEBHOOK_URL nas Propriedades do script com a URL pública /exec da implantação.");
+  if (!/^https:\/\/script\.google\.com(?:\/a\/[^/]+)?\/macros\/s\/[^/]+\/exec\/?$/.test(webAppUrl)) {
+    throw new Error("META_WEBHOOK_URL deve ser a URL pública do Apps Script terminada em /exec.");
+  }
+  const callbackUrl = webAppUrl.replace(/\/$/, "") + "?meta_secret=" + encodeURIComponent(config.webhookSecret);
+  let subscription = null;
+  if (config.wabaId) {
+    subscription = waMetaRequest("post", "/" + encodeURIComponent(config.wabaId) + "/subscribed_apps");
+  }
+  PropertiesService.getScriptProperties().setProperty("META_WEBHOOK_ACTIVATED_AT", String(new Date().getTime()));
+  return {
+    ok: true,
+    provider: "meta",
+    callbackUrl: webAppUrl.replace(/\/$/, "") + "?meta_secret=<SEGREDO_CONFIGURADO>",
+    subscription: subscription,
+    activatedAt: new Date().toISOString(),
+    next: "Cadastre essa URL e o META_VERIFY_TOKEN no painel Meta for Developers e assine o campo messages."
   };
 }
 
@@ -299,6 +337,96 @@ function waAttachInvitationToIdentity(identity, invite) {
   };
 }
 
+function isMetaWhatsAppVerificationRequest(e) {
+  const params = e && e.parameter ? e.parameter : {};
+  return Boolean((params["hub.mode"] || params.hub_mode) && (params["hub.challenge"] || params.hub_challenge));
+}
+
+function handleMetaWhatsAppVerification(e) {
+  const config = waGetConfig();
+  const params = e && e.parameter ? e.parameter : {};
+  const mode = (params["hub.mode"] || params.hub_mode || "").toString();
+  const token = (params["hub.verify_token"] || params.hub_verify_token || "").toString();
+  const challenge = (params["hub.challenge"] || params.hub_challenge || "").toString();
+  if (config.provider !== "meta" || mode !== "subscribe" || !challenge || !waSafeEquals(token, config.verifyToken)) {
+    return ContentService.createTextOutput("Webhook não autorizado.");
+  }
+  return ContentService.createTextOutput(challenge);
+}
+
+function isMetaWhatsAppWebhookPayload(payload) {
+  return Boolean(payload && payload.object === "whatsapp_business_account" && Array.isArray(payload.entry));
+}
+
+function waMetaMessagePayload(message, value) {
+  const contacts = value && Array.isArray(value.contacts) ? value.contacts : [];
+  const contact = contacts.find(function (item) { return item && item.wa_id && item.wa_id.toString() === message.from.toString(); }) || contacts[0] || {};
+  const profile = contact.profile && typeof contact.profile === "object" ? contact.profile : {};
+  const type = (message.type || "").toString().toLowerCase();
+  const content = {};
+  if (type === "text") content.conversation = message.text && message.text.body ? message.text.body : "";
+  else if (type === "image" && message.image) content.imageMessage = {
+    id: message.image.id, mimetype: message.image.mime_type, caption: message.image.caption || ""
+  };
+  else if (type === "document" && message.document) content.documentMessage = {
+    id: message.document.id, mimetype: message.document.mime_type, fileName: message.document.filename,
+    caption: message.document.caption || ""
+  };
+  else if (type === "location" && message.location) content.locationMessage = {
+    degreesLatitude: message.location.latitude, degreesLongitude: message.location.longitude
+  };
+  else if (type === "button" && message.button) content.buttonsResponseMessage = {
+    selectedButtonId: message.button.payload || message.button.text || ""
+  };
+  else if (type === "interactive" && message.interactive) {
+    const interactive = message.interactive;
+    const reply = interactive.button_reply || interactive.list_reply;
+    content.listResponseMessage = { singleSelectReply: { selectedRowId: reply && (reply.id || reply.title) || "" } };
+  }
+  return {
+    event: "webhookReceived",
+    instanceId: value && value.metadata ? value.metadata.phone_number_id : "",
+    messageId: message.id || "",
+    timestamp: message.timestamp || "",
+    sender: { id: message.from || "", phone: message.from || "", pushName: profile.name || "" },
+    chat: { id: message.from || "", phone: message.from || "" },
+    msgContent: content,
+    isGroup: false
+  };
+}
+
+function handleMetaWhatsAppWebhook(payload, e) {
+  let config;
+  try {
+    config = waGetConfig();
+    const params = e && e.parameter ? e.parameter : {};
+    const receivedSecret = params.meta_secret ? params.meta_secret.toString() : "";
+    if (config.provider !== "meta" || !waSafeEquals(config.webhookSecret, receivedSecret)) {
+      waAuditWebhook(payload, "Ignorado", "Webhook Meta não autorizado: meta_secret ausente ou diferente.");
+      return createJsonResponse({ status: "error", message: "Webhook não autorizado." }, 403);
+    }
+    let processed = 0;
+    (payload.entry || []).forEach(function (entry) {
+      (entry.changes || []).forEach(function (change) {
+        const value = change && change.value ? change.value : {};
+        if (change.field && change.field !== "messages") return;
+        if (value.metadata && value.metadata.phone_number_id && value.metadata.phone_number_id !== config.phoneNumberId) return;
+        (value.messages || []).forEach(function (message) {
+          if (!message || !message.from || message.from === config.displayPhoneNumber) return;
+          handleWhatsAppWebhook(waMetaMessagePayload(message, value), { parameter: { wa_secret: config.webhookSecret } });
+          processed++;
+        });
+      });
+    });
+    return createJsonResponse({ status: "ok", processed: processed });
+  } catch (error) {
+    waAuditWebhook(payload, "Erro", error && error.message ? error.message : error.toString());
+    // A Meta deve receber 200 para não reenfileirar indefinidamente a mesma
+    // mensagem; o detalhe completo já fica na aba WhatsApp Eventos.
+    return createJsonResponse({ status: "ok", processed: 0 });
+  }
+}
+
 function isWhatsAppWebhookPayload(payload) {
   if (!payload || typeof payload !== "object") return false;
   const event = payload.event ? payload.event.toString() : "";
@@ -320,7 +448,8 @@ function handleWhatsAppWebhook(payload, e) {
       return createJsonResponse({ status: "error", message: "Webhook não autorizado." }, 403);
     }
 
-    if (payload.instanceId && payload.instanceId.toString() !== config.instanceId) {
+    const expectedInstance = config.provider === "meta" ? config.phoneNumberId : config.instanceId;
+    if (payload.instanceId && expectedInstance && payload.instanceId.toString() !== expectedInstance) {
       waAuditWebhook(payload, "Ignorado", "Instância não autorizada.");
       return createJsonResponse({ status: "error", message: "Instância não autorizada." }, 403);
     }
@@ -1671,7 +1800,7 @@ function waBuildPaymentObservation(observation) {
 }
 
 function waDownloadIncomingMedia(media) {
-  if (!media || !media.mediaKey || !media.directPath) {
+  if (!media || (!media.mediaKey && !media.mediaId) || (!media.directPath && !media.mediaId)) {
     throw new Error("A mensagem não contém os dados necessários para baixar a mídia.");
   }
 
@@ -1681,17 +1810,27 @@ function waDownloadIncomingMedia(media) {
     throw new Error("Envie apenas imagem JPG/PNG/WEBP ou arquivo PDF.");
   }
 
-  const download = waWapiRequest("post", "/v1/message/download-media", {
-    mediaKey: media.mediaKey,
-    directPath: media.directPath,
-    type: media.type,
-    mimetype: mimeType
-  });
-  if (!download || download.error === true || !download.fileLink) {
-    throw new Error("A W-API não disponibilizou o arquivo recebido.");
+  const config = waGetConfig();
+  let response;
+  if (config.provider === "meta") {
+    const metadata = waMetaDownloadMedia(media.mediaId);
+    if (!metadata || !metadata.url) throw new Error("A API oficial Meta não disponibilizou o arquivo recebido.");
+    response = UrlFetchApp.fetch(metadata.url, {
+      headers: { Authorization: "Bearer " + config.accessToken },
+      muteHttpExceptions: true
+    });
+  } else {
+    const download = waWapiRequest("post", "/v1/message/download-media", {
+      mediaKey: media.mediaKey,
+      directPath: media.directPath,
+      type: media.type,
+      mimetype: mimeType
+    });
+    if (!download || download.error === true || !download.fileLink) {
+      throw new Error("A W-API não disponibilizou o arquivo recebido.");
+    }
+    response = UrlFetchApp.fetch(download.fileLink, { muteHttpExceptions: true });
   }
-
-  const response = UrlFetchApp.fetch(download.fileLink, { muteHttpExceptions: true });
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
     throw new Error("Não foi possível baixar o arquivo temporário.");
   }
@@ -1871,7 +2010,26 @@ function waHandleBookAction(identity, link, session, command) {
 
 function waGetConfig() {
   const props = PropertiesService.getScriptProperties();
+  const provider = (props.getProperty("WHATSAPP_PROVIDER") || "wapi").toString().trim().toLowerCase();
+  if (provider === "meta" || provider === "cloud" || provider === "cloud_api") {
+    const meta = {
+      provider: "meta",
+      phoneNumberId: (props.getProperty("META_PHONE_NUMBER_ID") || "").trim(),
+      accessToken: (props.getProperty("META_ACCESS_TOKEN") || "").trim(),
+      verifyToken: props.getProperty("META_VERIFY_TOKEN") || "",
+      webhookSecret: props.getProperty("META_WEBHOOK_SECRET") || "",
+      webhookUrl: (props.getProperty("META_WEBHOOK_URL") || props.getProperty("WAPI_WEBHOOK_URL") || "").trim(),
+      graphVersion: (props.getProperty("META_GRAPH_VERSION") || "").trim(),
+      wabaId: (props.getProperty("META_WABA_ID") || "").trim(),
+      displayPhoneNumber: (props.getProperty("META_DISPLAY_PHONE_NUMBER") || "").replace(/\D/g, "")
+    };
+    if (!meta.phoneNumberId || !meta.accessToken || !meta.verifyToken || !meta.webhookSecret || !/^v\d+\.\d+$/.test(meta.graphVersion)) {
+      throw new Error("Configure WHATSAPP_PROVIDER=meta, META_PHONE_NUMBER_ID, META_ACCESS_TOKEN, META_VERIFY_TOKEN, META_WEBHOOK_SECRET e META_GRAPH_VERSION nas Propriedades do script.");
+    }
+    return meta;
+  }
   const config = {
+    provider: "wapi",
     instanceId: props.getProperty("WAPI_INSTANCE_ID") || "",
     token: props.getProperty("WAPI_TOKEN") || "",
     webhookSecret: props.getProperty("WAPI_WEBHOOK_SECRET") || "",
@@ -1885,6 +2043,15 @@ function waGetConfig() {
 
 function waWapiRequest(method, path, body) {
   const config = waGetConfig();
+  if (config.provider === "meta") {
+    if (method.toLowerCase() === "post" && path === "/v1/message/send-text") {
+      return waMetaSendText(body && body.phone, body && body.message);
+    }
+    if (method.toLowerCase() === "post" && path === "/v1/message/download-media") {
+      return waMetaDownloadMedia(body && (body.mediaId || body.id));
+    }
+    throw new Error("A operação " + method.toUpperCase() + " " + path + " não é compatível com a API oficial Meta.");
+  }
   const url = "https://api.w-api.app" + path + "?instanceId=" + encodeURIComponent(config.instanceId);
   const options = {
     method: method,
@@ -1906,6 +2073,45 @@ function waWapiRequest(method, path, body) {
     throw new Error("W-API recusou o envio (HTTP " + status + "): " + (parsed.message || parsed.raw || "erro desconhecido"));
   }
   return parsed;
+}
+
+function waMetaRequest(method, path, body) {
+  const config = waGetConfig();
+  const url = "https://graph.facebook.com/" + config.graphVersion + path;
+  const options = {
+    method: method,
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + config.accessToken },
+    muteHttpExceptions: true
+  };
+  if (body !== undefined && body !== null) options.payload = JSON.stringify(body);
+  const response = UrlFetchApp.fetch(url, options);
+  const status = response.getResponseCode();
+  const content = response.getContentText();
+  let parsed;
+  try { parsed = content ? JSON.parse(content) : {}; } catch (error) { parsed = { raw: content }; }
+  if (status < 200 || status >= 300 || parsed.error) {
+    const detail = parsed.error && (parsed.error.message || parsed.error.error_user_msg) || parsed.raw || "erro desconhecido";
+    throw new Error("API oficial Meta recusou a operação (HTTP " + status + "): " + detail);
+  }
+  return parsed;
+}
+
+function waMetaSendText(phone, message) {
+  const normalized = waNormalizePhone(phone);
+  if (!normalized) throw new Error("A Meta exige o telefone do destinatário no formato internacional.");
+  return waMetaRequest("post", "/" + encodeURIComponent(waGetConfig().phoneNumberId) + "/messages", {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: normalized,
+    type: "text",
+    text: { preview_url: false, body: (message || "").toString() }
+  });
+}
+
+function waMetaDownloadMedia(mediaId) {
+  if (!mediaId) throw new Error("A mensagem não contém o ID da mídia da Meta.");
+  return waMetaRequest("get", "/" + encodeURIComponent(mediaId));
 }
 
 function waSendText(phone, message) {
@@ -2027,6 +2233,7 @@ function waExtractMedia(payload) {
     if (value) {
       return {
         type: candidate.type,
+        mediaId: value.id,
         mediaKey: value.mediaKey,
         directPath: value.directPath,
         mimetype: value.mimetype,
@@ -2293,7 +2500,8 @@ function waAuditWebhook(payload, status, detail) {
 }
 
 function waIsMessageBeforeWebhookActivation(payload) {
-  const activatedAt = Number(PropertiesService.getScriptProperties().getProperty("WAPI_WEBHOOK_ACTIVATED_AT") || 0);
+  const propertyName = waGetConfig().provider === "meta" ? "META_WEBHOOK_ACTIVATED_AT" : "WAPI_WEBHOOK_ACTIVATED_AT";
+  const activatedAt = Number(PropertiesService.getScriptProperties().getProperty(propertyName) || 0);
   const messageAt = waGetPayloadTimestamp(payload);
   // Sem um marco criado por configureWhatsAppReceivedWebhook(), ou sem um
   // timestamp confiável no payload, não há como provar que a mensagem é nova.

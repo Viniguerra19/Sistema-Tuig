@@ -558,6 +558,12 @@ function doOptions(e) {
  * Exemplo: ?action=login&email=xyz
  */
 function doGet(e) {
+  // A Meta valida o webhook enviando hub.mode, hub.verify_token e
+  // hub.challenge. Essa chamada precisa ser respondida antes da autenticação
+  // do PWA, pois não contém e-mail de usuário.
+  if (typeof isMetaWhatsAppVerificationRequest === 'function' && isMetaWhatsAppVerificationRequest(e)) {
+    return handleMetaWhatsAppVerification(e);
+  }
   const action = e.parameter.action;
   
   try {
@@ -618,6 +624,9 @@ function doPost(e) {
 
   // A W-API entrega mensagens no mesmo Web App usado pela API. O webhook
   // precisa ser roteado antes das actions do PWA, pois não possui payload.action.
+  if (typeof isMetaWhatsAppWebhookPayload === "function" && isMetaWhatsAppWebhookPayload(payload)) {
+    return handleMetaWhatsAppWebhook(payload, e);
+  }
   if (typeof isWhatsAppWebhookPayload === "function" && isWhatsAppWebhookPayload(payload)) {
     return handleWhatsAppWebhook(payload, e);
   }

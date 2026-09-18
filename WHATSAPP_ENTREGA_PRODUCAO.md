@@ -1,6 +1,12 @@
 # Entrega da integração WhatsApp do TUIG
 
-Este pacote reúne a correção feita para o frontend conversacional do TUIG via W-API.
+Este pacote reúne a integração do frontend conversacional do TUIG. O código suporta a API oficial Meta Cloud e mantém a W-API como provedor legado/fallback.
+
+## API oficial Meta Cloud
+
+Para migrar, defina `WHATSAPP_PROVIDER=meta` e configure `META_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN`, `META_VERIFY_TOKEN`, `META_WEBHOOK_SECRET`, `META_WEBHOOK_URL` e `META_GRAPH_VERSION` nas propriedades do script. O callback da Meta deve usar `META_WEBHOOK_URL?meta_secret=...`, com o objeto `whatsapp_business_account` e o campo `messages` assinado no painel Meta for Developers. A configuração detalhada e o checklist de credenciais estão em `WHATSAPP_SETUP.md`.
+
+O número precisa estar registrado na plataforma WhatsApp Business da Meta. O Apps Script não consegue criar a conta Business, verificar o número ou emitir o token em nome do administrador; essas etapas precisam ser concluídas no painel Meta. Depois de cadastrar as propriedades e publicar uma nova versão do Web App, execute `configureWhatsAppReceivedWebhook()` para registrar o marco de ativação e, se `META_WABA_ID` estiver presente, solicitar a assinatura da conta.
 
 ## Arquivos deste pacote
 

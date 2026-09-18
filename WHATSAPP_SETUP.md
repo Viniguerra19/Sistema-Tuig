@@ -6,7 +6,7 @@ Esta integração mantém o PWA existente e adiciona um segundo frontend convers
 Pessoa no WhatsApp
         │
         ▼
-Número dedicado conectado à W-API
+Número dedicado conectado à API oficial Meta Cloud (ou W-API legado)
         │ webhook de mensagem recebida
         ▼
 Google Apps Script (Code.gs + WhatsApp.gs)
@@ -15,6 +15,33 @@ Google Apps Script (Code.gs + WhatsApp.gs)
         ├── Google Drive (comprovantes)
         └── Gmail/MailApp (código de vinculação)
 ```
+
+## Provedor recomendado: API oficial Meta Cloud
+
+O código agora aceita a API oficial da Meta sem alterar o fluxo conversacional, a allowlist da aba `WhatsApp Usuários` ou as planilhas existentes. A W-API continua disponível como fallback até a migração ser validada.
+
+No Apps Script, abra **Configurações do projeto > Propriedades do script** e cadastre:
+
+| Propriedade | Valor |
+|---|---|
+| `WHATSAPP_PROVIDER` | `meta` |
+| `META_PHONE_NUMBER_ID` | ID do número em **WhatsApp > Configuração da API** |
+| `META_ACCESS_TOKEN` | token permanente de sistema com permissão de envio e recebimento |
+| `META_VERIFY_TOKEN` | frase aleatória criada por você para a verificação do webhook |
+| `META_WEBHOOK_SECRET` | segredo aleatório longo usado na URL do callback |
+| `META_WEBHOOK_URL` | URL pública `/exec` da implantação do Apps Script |
+| `META_GRAPH_VERSION` | versão Graph disponível no seu painel, no formato `vNN.N` |
+| `META_WABA_ID` | ID da conta WhatsApp Business; opcional para a assinatura automática |
+
+Nunca coloque `META_ACCESS_TOKEN` no frontend, no GitHub ou na planilha. A URL cadastrada no webhook da Meta deve ser:
+
+```text
+META_WEBHOOK_URL?meta_secret=VALOR_DE_META_WEBHOOK_SECRET
+```
+
+No painel **Meta for Developers > Webhooks**, selecione o objeto `whatsapp_business_account`, informe `META_VERIFY_TOKEN`, use a URL acima e assine o campo `messages`. Depois publique uma nova versão do Web App e execute `configureWhatsAppReceivedWebhook()` no Apps Script. Se `META_WABA_ID` estiver configurado, essa função também solicita a assinatura do aplicativo nessa conta.
+
+O número precisa estar cadastrado na Meta como número da plataforma WhatsApp Business. A troca para a API oficial não é feita só pelo código: a Meta precisa fornecer o Business Account, o número, o token e a aprovação/permissões da conta. Também pode ser necessário remover o número da W-API anterior antes de registrá-lo na Meta.
 
 ## O que esta primeira versão já faz
 
