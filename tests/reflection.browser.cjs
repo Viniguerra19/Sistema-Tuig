@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 async function main() {
+  fs.mkdirSync('artifacts', { recursive: true });
   const source = vm.createContext({}); vm.runInContext(fs.readFileSync('Code.gs', 'utf8'), source);
   const questions = vm.runInContext('REFLECTION_QUESTIONS', source);
   const browser = await chromium.launch({ channel: 'chrome', headless: true });

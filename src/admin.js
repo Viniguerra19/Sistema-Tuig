@@ -4,6 +4,10 @@ import { renderFollowupCenter } from './followup.js';
 import { renderAdminReflections } from './reflection.js';
 import { renderMembershipAdmin } from './membership.js';
 
+function ritualText(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 export async function renderAdminDashboard(email) {
     const role = localStorage.getItem('tuig_role') || 'admin';
     const isMaster = role === 'master_admin';
@@ -943,8 +947,10 @@ function renderAdminTable(users, role) {
     const tbody = document.getElementById('users-table-body');
     const thActions = document.getElementById('action-header');
 
-    if (role !== 'master_admin') {
+    if (!['master_admin', 'admin'].includes(role)) {
         if (thActions) thActions.style.display = 'none';
+    } else if (thActions) {
+        thActions.style.display = '';
     }
 
     if (!users || users.length === 0) {
@@ -962,10 +968,10 @@ function renderAdminTable(users, role) {
         }
 
         let actionTd = '';
-        if (role === 'master_admin') {
+        if (role === 'master_admin' || role === 'admin') {
             actionTd = `<td data-label="Ações">
                 <button class="btn-primary details-btn" data-email="${u.email}" data-nome="${u.nome}" style="padding:10px 16px; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; background:rgba(99, 102, 241, 0.1); color:#a5b4fc; border:1px solid rgba(99, 102, 241, 0.2); width:100%;">
-                    Ver Frequência
+                    Ver ficha e rituais
                 </button>
             </td>`;
         }
@@ -1013,17 +1019,50 @@ function reRenderAdminTable() {
     renderAdminTable(filteredUsers, role);
 }
 
-async function openUserDetails(emailBusca, nome) {
-    document.getElementById('modal-user-name').innerText = `Detalhes de ${nome}`;
-    document.getElementById('modal-user-rituals').innerHTML = '<div class="loader active"></div>';
+function ritualDateKey(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
-    openModalById('user-details-modal');
+function ritualAlreadyRecorded(data, input) {
+    return (data?.rituals || []).some(ritual => {
+        const name = String(ritual.nome || '').toLowerCase();
+        const type = ritual.tipo || (name.includes('assentamento') && name.includes('esquerda') ? 'esquerda'
+            : name.includes('assentamento') && name.includes('entidade') ? 'entidade' : '');
+        const stage = String(ritual.etapa || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return type === input.tipo && ritualDateKey(ritual.data) === input.data &&
+            (!stage || stage === input.etapa);
+    });
+}
+
+function preventDuplicateRitualSubmit(form, savedInput) {
+    if (!form || !savedInput) return;
+    form.dataset.savedRitualKey = `${savedInput.tipo}|${savedInput.data}`;
+    const update = () => {
+        const currentKey = `${form.elements.tipo.value}|${form.elements.data.value}`;
+        form.querySelector('button[type="submit"]').disabled = currentKey === form.dataset.savedRitualKey;
+    };
+    if (!form.dataset.ritualLockReady) {
+        form.elements.tipo.addEventListener('change', update);
+        form.elements.data.addEventListener('change', update);
+        form.dataset.ritualLockReady = '1';
+    }
+    update();
+}
+
+async function openUserDetails(emailBusca, nome, options = {}) {
+    const container = document.getElementById('modal-user-rituals');
+    if (!options.keepContent) {
+        document.getElementById('modal-user-name').innerText = `Detalhes de ${nome}`;
+        container.innerHTML = '<div class="loader active"></div>';
+        openModalById('user-details-modal');
+    }
 
     try {
-        const json = await apiFetch('getUserData', { params: { email: emailBusca } });
+        const json = await apiFetch('getUserData', { params: { email: emailBusca, ...(options.keepContent ? { fresh: '1' } : {}) } });
+        if (json.status !== 'success') throw new Error(json.message || 'Não foi possível carregar a ficha.');
 
-        let container = document.getElementById('modal-user-rituals');
-        if (json.status === "success") {
             let html = '';
             const data = json.data;
 
@@ -1053,7 +1092,7 @@ async function openUserDetails(emailBusca, nome) {
                     html += `
                         <div style="background: rgba(255,255,255,0.02); padding: 18px 24px; border-radius: 16px; border: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; transition: all 0.3s ease;">
                             <div>
-                                <div style="font-weight: 700; color: #fff; font-size: 1rem; margin-bottom: 4px;">${r.nome}</div>
+                                <div style="font-weight: 700; color: #fff; font-size: 1rem; margin-bottom: 4px;">${ritualText(r.nome)} ${r.etapa ? `<span style="font-size:0.75rem;color:var(--accent)">· ${ritualText(r.etapa)}</span>` : ''}</div>
                                 <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">
                                     ${r.intervalo}
                                 </div>
@@ -1066,12 +1105,110 @@ async function openUserDetails(emailBusca, nome) {
                 });
                 html += '</div>';
             }
+            const renewals = data.renovacoes || [];
+            if (renewals.length) {
+                html += '<div style="margin-top:20px;padding:16px;border:1px solid var(--glass-border);border-radius:12px"><strong>Reforços anuais</strong>';
+                renewals.forEach(item => {
+                    html += `<p style="margin:8px 0 0">${item.tipo === 'esquerda' ? 'Esquerda' : 'Entidade'}: último em ${new Date(item.ultimo).toLocaleDateString('pt-BR')} · próximo em ${new Date(item.proximo).toLocaleDateString('pt-BR')} · ${ritualText(item.situacao)}</p>`;
+                });
+                html += '</div>';
+            }
+            const today = new Date();
+            const todayInput = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+            html += `<form id="assentamento-form" style="margin-top:24px;padding:18px;border:1px solid var(--glass-border);border-radius:14px;display:grid;gap:12px">
+                <strong>Registrar assentamento ou reforço</strong>
+                <label>Ritual <select name="tipo" required style="width:100%;padding:10px"><option value="esquerda">Assentamento de Esquerda</option><option value="entidade">Assentamento de Entidade</option></select></label>
+                <label>Registro <select name="etapa" required style="width:100%;padding:10px"><option value="inicial">Assentamento inicial</option><option value="reforco">Reforço anual</option></select></label>
+                <label>Data em que foi realizado <input name="data" type="date" required max="${todayInput}" value="${todayInput}" style="width:100%;padding:10px"></label>
+                <label>Observações (opcional) <textarea name="notas" maxlength="1000" rows="2" style="width:100%;padding:10px"></textarea></label>
+                <button type="submit" class="btn-primary">Salvar ritual</button>
+                <p id="assentamento-feedback" role="status" style="margin:0"></p>
+            </form>`;
             container.innerHTML = html;
-        } else {
-            container.innerHTML = `<p style="color:#ef4444">${json.message}</p>`;
-        }
+            const form = container.querySelector('#assentamento-form');
+            const tipoField = form.elements.tipo, etapaField = form.elements.etapa;
+            tipoField.addEventListener('change', () => {
+                etapaField.value = (data.renovacoes || []).some(r => r.tipo === tipoField.value) ? 'reforco' : 'inicial';
+            });
+            tipoField.dispatchEvent(new Event('change'));
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                const button = form.querySelector('button[type="submit"]'), feedback = form.querySelector('#assentamento-feedback');
+                button.disabled = true; feedback.textContent = 'Salvando...';
+                const input = {
+                    adminEmail: window.currentUserEmail, targetEmail: emailBusca,
+                    tipo: tipoField.value, etapa: etapaField.value,
+                    data: form.elements.data.value, notas: form.elements.notas.value
+                };
+                let response, requestError;
+                try {
+                    response = await apiFetch('saveAssentamento', { method: 'POST', data: input });
+                } catch (error) {
+                    requestError = error;
+                }
+
+                const acknowledged = response?.status === 'success';
+                let saved = acknowledged;
+                if (!saved) {
+                    feedback.textContent = 'Conferindo se o ritual foi registrado...';
+                    try {
+                        const check = await apiFetch('getUserData', { params: { email: emailBusca, fresh: '1' }, timeout: 15000 });
+                        saved = check.status === 'success' && ritualAlreadyRecorded(check.data, input);
+                    } catch (error) {
+                        // A falha na conferência não prova que a gravação falhou.
+                    }
+                }
+
+                if (saved) {
+                    const message = acknowledged
+                        ? response?.data?.message || response?.message ||
+                            (input.etapa === 'reforco' ? 'Reforço registrado.' : 'Assentamento inicial registrado.')
+                        : 'Este ritual já consta na ficha.';
+                    feedback.style.color = 'var(--success)';
+                    feedback.textContent = `${message} Atualizando a ficha...`;
+                    await openUserDetails(emailBusca, nome, { keepContent: true, savedMessage: message, savedInput: input });
+                } else {
+                    feedback.style.color = '#f87171';
+                    feedback.textContent = requestError
+                        ? 'Não consegui confirmar a gravação. Confira a ficha antes de tentar novamente.'
+                        : response?.message || 'Não foi possível salvar o ritual.';
+                    button.disabled = false;
+                }
+            });
+            if (options.savedMessage) {
+                const feedback = form.querySelector('#assentamento-feedback');
+                feedback.style.color = 'var(--success)';
+                feedback.textContent = options.savedMessage;
+                preventDuplicateRitualSubmit(form, options.savedInput);
+            }
+            return true;
     } catch (e) {
-        document.getElementById('modal-user-rituals').innerHTML = `<p style="color:#ef4444">Erro de conexão.</p>`;
+        if (!options.keepContent) {
+            container.innerHTML = `<p style="color:#ef4444">${ritualText(e.message || 'Erro de conexão ao carregar a ficha.')}</p><button type="button" class="btn-primary" id="retry-user-details">Tentar novamente</button>`;
+            container.querySelector('#retry-user-details').addEventListener('click', () => openUserDetails(emailBusca, nome));
+        } else {
+            const form = container.querySelector('#assentamento-form');
+            const feedback = form?.querySelector('#assentamento-feedback');
+            if (feedback) {
+                feedback.style.color = options.savedMessage ? 'var(--success)' : '#f87171';
+                feedback.textContent = `${options.savedMessage ? `${options.savedMessage} ` : ''}A ficha não atualizou agora.`;
+                preventDuplicateRitualSubmit(form, options.savedInput);
+                if (!form.querySelector('[data-refresh-rituals]')) {
+                    const retry = document.createElement('button');
+                    retry.type = 'button';
+                    retry.className = 'btn-primary';
+                    retry.dataset.refreshRituals = '';
+                    retry.textContent = 'Atualizar ficha';
+                    retry.addEventListener('click', async () => {
+                        retry.disabled = true;
+                        const refreshed = await openUserDetails(emailBusca, nome, options);
+                        if (!refreshed) retry.disabled = false;
+                    });
+                    feedback.after(retry);
+                }
+            }
+        }
+        return false;
     }
 }
 
@@ -1827,7 +1964,7 @@ function filtrarERenderizarRelatorio() {
             if (!searchString.includes(searchTerm)) return false;
         }
         
-        const userRitualNames = user.rituals.map(r => r.nome);
+        const userRitualNames = [...new Set(user.rituals.map(r => r.nome))];
         
         // 2. Filtrar por condição de ritual
         if (condition === 'only') {
@@ -1877,7 +2014,7 @@ function filtrarERenderizarRelatorio() {
                     const formattedDate = isNaN(d.getTime()) ? r.data : d.toLocaleDateString('pt-BR');
                     ritualsHtml += `
                         <div style="margin-bottom: 6px; display:flex; align-items:center; gap:8px;">
-                            <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: var(--accent); border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.75rem;">${r.nome}</span>
+                            <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: var(--accent); border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.75rem;">${ritualText(r.nome)}${r.etapa ? ' · ' + ritualText(r.etapa) : ''}</span>
                             <span style="font-size:0.8rem; color: var(--text-muted);">${formattedDate}</span>
                             ${r.notas ? `<span style="font-size:0.75rem; color: #64748b; font-style: italic;">(${r.notas})</span>` : ''}
                         </div>
@@ -1976,7 +2113,7 @@ function exportReportsCSV() {
             if (!searchString.includes(searchTerm)) return false;
         }
         
-        const userRitualNames = user.rituals.map(r => r.nome);
+        const userRitualNames = [...new Set(user.rituals.map(r => r.nome))];
         
         if (condition === 'only') {
             if (userRitualNames.length !== 1) return false;
@@ -2007,7 +2144,7 @@ function exportReportsCSV() {
         const ritualsStr = u.rituals.map(r => {
             const d = new Date(r.data);
             const formattedDate = isNaN(d.getTime()) ? r.data : d.toLocaleDateString('pt-BR');
-            return `${r.nome} (${formattedDate})`;
+            return `${r.nome}${r.etapa ? ' · ' + r.etapa : ''} (${formattedDate})`;
         }).join(" | ");
         
         const nomeEscaped = u.nome.replace(/"/g, '""');

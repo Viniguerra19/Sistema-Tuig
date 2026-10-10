@@ -558,12 +558,6 @@ function doOptions(e) {
  * Exemplo: ?action=login&email=xyz
  */
 function doGet(e) {
-  // A Meta valida o webhook enviando hub.mode, hub.verify_token e
-  // hub.challenge. Essa chamada precisa ser respondida antes da autenticação
-  // do PWA, pois não contém e-mail de usuário.
-  if (typeof isMetaWhatsAppVerificationRequest === 'function' && isMetaWhatsAppVerificationRequest(e)) {
-    return handleMetaWhatsAppVerification(e);
-  }
   const action = e.parameter.action;
   
   try {
@@ -581,7 +575,7 @@ function doGet(e) {
       case 'login':
         return handleLogin(e.parameter.email);
       case 'getUserData':
-        return handleGetUserData(e.parameter.email);
+        return handleGetUserData(e.parameter.email, e.parameter.fresh === '1');
       case 'getAdminData':
          return handleGetAdminData(e.parameter.email);
       case 'getDashboardStats':
@@ -624,9 +618,6 @@ function doPost(e) {
 
   // A W-API entrega mensagens no mesmo Web App usado pela API. O webhook
   // precisa ser roteado antes das actions do PWA, pois não possui payload.action.
-  if (typeof isMetaWhatsAppWebhookPayload === "function" && isMetaWhatsAppWebhookPayload(payload)) {
-    return handleMetaWhatsAppWebhook(payload, e);
-  }
   if (typeof isWhatsAppWebhookPayload === "function" && isWhatsAppWebhookPayload(payload)) {
     return handleWhatsAppWebhook(payload, e);
   }
@@ -645,6 +636,8 @@ function doPost(e) {
         return createJsonResponse({ status: 'success', data: reflectionSave(payload.data || {}) });
       case 'saveFollowupEvent':
         return createJsonResponse(fuSaveEvent(payload.data || {}));
+      case 'saveAssentamento':
+        return createJsonResponse({ status: 'success', data: saveAssentamento(payload.data || {}) });
       case 'registerPresence':
         return handleRegisterPresence(payload.data);
       case 'sendJustification':
@@ -737,9 +730,9 @@ function handleLogin(email) {
    });
 }
 
-function handleGetUserData(email) {
+function handleGetUserData(email, freshRituals) {
    if (!email) return createJsonResponse({ status: "error", message: "Email não fornecido." });
-   const data = getUserData(email);
+   const data = getUserData(email, freshRituals);
    if (!data) return createJsonResponse({ status: "error", message: "Usuário não encontrado." });
    
    return createJsonResponse({ status: "success", data: data });
@@ -1092,14 +1085,124 @@ function getUserRole(email) {
   return null;
 }
 
-function getUserData(email) {
+const TUIG_RITUAL_CACHE_KEY = 'tuig_ritual_rows_v1';
+function getRitualRowsCached(sheet, fresh) {
+  const cache = CacheService.getScriptCache();
+  const cached = fresh ? null : cache.get(TUIG_RITUAL_CACHE_KEY);
+  if (cached) {
+    try {
+      const rows = JSON.parse(cached);
+      if (Array.isArray(rows)) return rows;
+    } catch (err) {
+      cache.remove(TUIG_RITUAL_CACHE_KEY);
+    }
+  }
+
+  const rows = sheet.getDataRange().getValues();
+  try {
+    // Cache é apenas uma aceleração: se o valor exceder o limite, segue lendo a planilha normalmente.
+    cache.put(TUIG_RITUAL_CACHE_KEY, JSON.stringify(rows), 60);
+  } catch (err) {
+    // CacheService pode recusar conjuntos grandes; a leitura atual já está disponível em memória.
+  }
+  return rows;
+}
+
+function ritualKind(name) {
+  const value = fuNorm(name);
+  if (value.includes('assentamento') && value.includes('esquerda')) return 'esquerda';
+  if (value.includes('assentamento') && value.includes('entidade')) return 'entidade';
+  return '';
+}
+
+function ritualDate(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  const raw = fuText(value);
+  let parts = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (parts) {
+    let year = Number(parts[3]); if (year < 100) year += 2000;
+    const date = new Date(year, Number(parts[2]) - 1, Number(parts[1]), 12);
+    return date.getFullYear() === year && date.getMonth() === Number(parts[2]) - 1 && date.getDate() === Number(parts[1]) ? date : null;
+  }
+  parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (parts) {
+    const year = Number(parts[1]), month = Number(parts[2]), day = Number(parts[3]);
+    const date = new Date(year, month - 1, day, 12);
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+  }
+  const date = new Date(raw);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function ritualHistory(rows, email) {
+  const history = rows.slice(1).filter(r => fuEmail(r[0]) === fuEmail(email)).map(r => {
+    const date = ritualDate(r[2]);
+    return date ? { nome: fuText(r[1]), data: date.toISOString(), timestamp: date.getTime(), notas: fuText(r[3]),
+      tipo: ritualKind(r[1]), etapa: fuNorm(r[4]) === 'reforco' ? 'Reforço' : fuNorm(r[4]) === 'inicial' ? 'Inicial' : '' } : null;
+  }).filter(Boolean).sort((a,b) => a.timestamp - b.timestamp);
+  const seen = new Set();
+  history.forEach(item => {
+    if (item.tipo && !item.etapa) item.etapa = seen.has(item.tipo) ? 'Reforço' : 'Inicial';
+    if (item.tipo) seen.add(item.tipo);
+  });
+  return history.sort((a,b) => b.timestamp - a.timestamp);
+}
+
+function ritualRenewals(history, now) {
+  return ['esquerda', 'entidade'].map(tipo => {
+    const entries = history.filter(r => r.tipo === tipo);
+    if (!entries.length) return null;
+    const last = entries[0], next = new Date(last.timestamp);
+    next.setFullYear(next.getFullYear() + 1);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const due = new Date(next.getFullYear(), next.getMonth(), next.getDate());
+    return { tipo, ultimo: last.data, proximo: next.toISOString(), situacao: due < today ? 'Vencido' : due.getTime() === today.getTime() ? 'Vence hoje' : 'Em dia' };
+  }).filter(Boolean);
+}
+
+function saveAssentamento(data) {
+  return tuigPresenceWrite(() => {
+    const adminEmail = fuEmail(data.adminEmail), targetEmail = fuEmail(data.targetEmail);
+    if (!['master_admin','admin'].includes(getUserRole(adminEmail))) throw new Error('Somente a administração pode registrar assentamentos.');
+    if (!getAdminData(adminEmail).some(u => fuEmail(u.email) === targetEmail)) throw new Error('Pessoa fora do seu acesso ou cadastro inativo.');
+    const tipo = fuNorm(data.tipo), etapa = fuNorm(data.etapa);
+    if (!['esquerda','entidade'].includes(tipo) || !['inicial','reforco'].includes(etapa)) throw new Error('Selecione o tipo de assentamento e Inicial ou Reforço.');
+    const date = ritualDate(data.data);
+    const today = new Date(); today.setHours(23,59,59,999);
+    if (!date || date > today) throw new Error('Informe uma data válida que já aconteceu.');
+    const notes = fuText(data.notas);
+    if (notes.length > 1000) throw new Error('As observações devem ter no máximo 1000 caracteres.');
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID), sheet = ss.getSheetByName(NOME_ABA_RITUAIS);
+    if (!sheet) throw new Error('A aba Rituais não foi encontrada.');
+    const rows = sheet.getDataRange().getValues(), headers = rows[0] || [];
+    if (fuNorm(headers[0]) !== 'useremail' || fuNorm(headers[1]) !== 'nomeritual' || fuNorm(headers[2]) !== 'datarealizacao' || fuNorm(headers[3]) !== 'notas') {
+      throw new Error('Os cabeçalhos da aba Rituais foram alterados. Confira antes de salvar.');
+    }
+    if (headers[4] && fuNorm(headers[4]) !== 'etapa') throw new Error('A coluna E da aba Rituais já tem outro uso.');
+    const prior = ritualHistory(rows, targetEmail).filter(r => r.tipo === tipo);
+    if (etapa === 'inicial' && prior.length) throw new Error('Este assentamento já consta no histórico. Registre o novo como Reforço.');
+    if (etapa === 'reforco' && !prior.length) throw new Error('Registre o assentamento inicial antes do primeiro reforço.');
+    if (prior.some(r => new Date(r.timestamp).toDateString() === date.toDateString())) throw new Error('Já existe este assentamento nesta data.');
+    if (etapa === 'reforco' && date <= new Date(prior[prior.length - 1].timestamp)) throw new Error('O reforço deve ser posterior ao primeiro assentamento.');
+    if (!headers[4]) sheet.getRange(1,5).setValue('Etapa');
+    const safeNotes = /^[=+@-]/.test(notes) ? "'" + notes : notes;
+    sheet.appendRow([targetEmail, tipo === 'esquerda' ? 'Assentamento de Esquerda' : 'Assentamento de Entidade', date, safeNotes, etapa === 'inicial' ? 'Inicial' : 'Reforço']);
+    try { sheet.getRange(sheet.getLastRow(),3).setNumberFormat('dd/MM/yyyy'); }
+    catch (err) { Logger.log('Ritual salvo; não foi possível formatar a data: ' + err); }
+    try { CacheService.getScriptCache().remove(TUIG_RITUAL_CACHE_KEY); }
+    catch (err) { Logger.log('Ritual salvo; não foi possível limpar o cache: ' + err); }
+    return { message: etapa === 'inicial' ? 'Assentamento inicial registrado.' : 'Reforço registrado.' };
+  });
+}
+
+function getUserData(email, freshRituals) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const periods = memberPeriods(ss);
   const userSheet = ss.getSheetByName(NOME_ABA_USUARIOS);
   const ritualSheet = ss.getSheetByName(NOME_ABA_RITUAIS);
   
   const userData = userSheet.getDataRange().getValues();
-  const ritualsData = ritualSheet.getDataRange().getValues();
+  const ritualsData = getRitualRowsCached(ritualSheet, freshRituals);
   const searchEmail = email.toLowerCase().trim();
   
   let user = null;
@@ -1156,20 +1259,11 @@ function getUserData(email) {
   const canMarkPresence = availability.allowed;
   const blockReason = availability.reason;
   
-  const userRituals = ritualsData.filter(r => r[0].toString().toLowerCase().trim() === searchEmail).map(r => {
-    const dataObj = r[2] instanceof Date ? r[2] : new Date(r[2]);
-    const diffHoje = hoje - dataObj.getTime();
-    const diasAtras = Math.floor(diffHoje / (1000 * 60 * 60 * 24));
-    
-    return {
-      nome: r[1],
-      data: dataObj.toISOString(),
-      timestamp: dataObj.getTime(),
-      diasAtras: diasAtras > 0 ? diasAtras + " dias atrás" : "Hoje",
-      notas: r[3] || "",
-      intervalo: ""
-    };
-  }).sort((a, b) => b.timestamp - a.timestamp);
+  const userRituals = ritualHistory(ritualsData, searchEmail).map(r => {
+    const daysAgo = Math.floor((hoje - r.timestamp) / 86400000);
+    return { ...r, diasAtras: daysAgo > 0 ? `${daysAgo} dias atrás` : 'Hoje', intervalo: '' };
+  });
+  const renovacoes = ritualRenewals(userRituals, hojeVal);
   
   // Regras de negócio para recomendação e elegibilidade de rituais agendados
   const completedNames = userRituals.map(r => r.nome.toLowerCase().trim());
@@ -1416,6 +1510,7 @@ function getUserData(email) {
   return {
     user: user,
     rituals: userRituals,
+    renovacoes: renovacoes,
     eventHistory: eventHistory,
     frequencyStats: frequencyStats,
     tempoParaProximo: tempoParaProximo,
@@ -1836,40 +1931,7 @@ function handleGetRitualsReport(requesterEmail) {
     if (!ritualSheet) return createJsonResponse({ status: "error", message: "Aba de rituais não encontrada." });
     
     const userData = userSheet.getDataRange().getValues();
-    const ritualsData = ritualSheet.getDataRange().getValues();
-    
-    // Mapeia emails para seus rituais
-    const userRitualsMap = {};
-    for (let i = 1; i < ritualsData.length; i++) {
-      const email = ritualsData[i][0].toString().toLowerCase().trim();
-      if (!email) continue;
-      const ritualName = ritualsData[i][1].toString().trim();
-      const ritualDate = ritualsData[i][2];
-      const ritualNotes = ritualsData[i][3] || "";
-      
-      let dateStr = "";
-      if (ritualDate instanceof Date) {
-        dateStr = ritualDate.toISOString();
-      } else if (ritualDate) {
-        let parsedDate = new Date(ritualDate);
-        if (isNaN(parsedDate.getTime())) {
-          const partes = ritualDate.toString().split('/');
-          if (partes.length === 3) {
-            parsedDate = new Date(partes[2], partes[1] - 1, partes[0]);
-          }
-        }
-        dateStr = isNaN(parsedDate.getTime()) ? ritualDate.toString() : parsedDate.toISOString();
-      }
-      
-      if (!userRitualsMap[email]) {
-        userRitualsMap[email] = [];
-      }
-      userRitualsMap[email].push({
-        nome: ritualName,
-        data: dateStr,
-        notas: ritualNotes
-      });
-    }
+    const ritualsData = getRitualRowsCached(ritualSheet);
     
     const reportData = [];
     for (let i = 1; i < userData.length; i++) {
@@ -1889,7 +1951,7 @@ function handleGetRitualsReport(requesterEmail) {
         nome: nome,
         turma: turma,
         role: userRole,
-        rituals: userRitualsMap[email] || []
+        rituals: ritualHistory(ritualsData, email).map(r => ({ nome:r.nome, data:r.data, notas:r.notas, etapa:r.etapa }))
       });
     }
     
@@ -2669,6 +2731,13 @@ function onOpen() {
       .addItem("Consolidar Livros do Acervo", "consolidateBooks")
       .addItem("Buscar Capas e Sinopses Automaticamente", "enrichBookDetails")
       .addToUi();
+    if (typeof mostrarPreviaMigracaoAniversarios === 'function') {
+      ui.createMenu("TUIG - Aniversários")
+        .addItem("Aniversariantes de hoje e pendências", "mostrarAniversariosHoje")
+        .addItem("Ativar aviso diário", "configurarGatilhoAniversariosTuig")
+        .addItem("Pausar aviso diário", "pausarAniversariosTuig")
+        .addToUi();
+    }
   } catch (e) {
     Logger.log("Não foi possível criar o menu da planilha. Se você está executando do editor, isso é normal: " + e.toString());
   }

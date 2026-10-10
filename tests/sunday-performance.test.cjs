@@ -29,6 +29,7 @@ function setup() {
     } }), appendRow: row => tables[name].push(row)
   }; } };
   const ctx = vm.createContext({ Date: Today, console, SpreadsheetApp: { openById: () => ss },
+    CacheService: { getScriptCache: () => ({ get: () => null, put() {}, remove() {} }) },
     LockService: { getScriptLock: () => ({ waitLock() { locks.push('start'); }, releaseLock() { locks.push('end'); } }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ setMimeType: () => JSON.parse(text) }) }
   });

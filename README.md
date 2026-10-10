@@ -71,7 +71,6 @@ O projeto adota uma arquitetura limpa e baseada em componentes Vanilla. Abaixo e
 │   ├── logo.png              # Logotipo oficial e ícone do aplicativo
 │   ├── manifest.json         # Arquivo de metadados PWA para instalação mobile/desktop
 │   ├── sw.js                 # Script do Service Worker configurado via Workbox
-│   └── vite.svg              # Recurso nativo do Vite
 └── src/                      # Código-fonte principal do frontend
     ├── config.js             # Configuração da URL da API de Produção
     ├── style.css             # Folha de estilo centralizada do sistema (Dark Mode Premium)
@@ -135,6 +134,7 @@ O banco de dados é hospedado em uma Planilha Google. A estrutura e nomenclatura
     *   `Coluna B`: **Ritual** *(Nome do ritual realizado)*
     *   `Coluna C`: **Data** *(Formato: DD/MM/YYYY)*
     *   `Coluna D`: **Notas** *(Observações da atividade)*
+    *   `Coluna E`: **Etapa** *(`Inicial` ou `Reforço` para assentamentos de esquerda e de entidade; cada realização ocupa uma linha)*
 
 *   **Aba `Presenças`**: Registro de entrada de presença.
     *   `Coluna A`: **Data/Hora** *(Timestamp do envio)*

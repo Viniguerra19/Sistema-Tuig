@@ -648,6 +648,23 @@ function showUserData(data) {
         return;
     }
 
+    if (data.renovacoes?.length) {
+        const renewals = document.createElement('div');
+        renewals.className = 'ritual-card';
+        renewals.style.display = 'block';
+        renewals.style.padding = '20px';
+        const heading = document.createElement('strong');
+        heading.textContent = 'Reforços anuais';
+        renewals.appendChild(heading);
+        data.renovacoes.forEach(item => {
+            const line = document.createElement('p');
+            line.style.margin = '8px 0 0';
+            line.textContent = `${item.tipo === 'esquerda' ? 'Esquerda' : 'Entidade'}: último em ${new Date(item.ultimo).toLocaleDateString('pt-BR')} · próximo em ${new Date(item.proximo).toLocaleDateString('pt-BR')} · ${item.situacao}`;
+            renewals.appendChild(line);
+        });
+        listDiv.appendChild(renewals);
+    }
+
     const title = document.createElement('h3');
     title.innerText = "Rituais realizados";
     title.style.marginTop = "30px";
@@ -662,13 +679,14 @@ function showUserData(data) {
         card.className = 'ritual-card ' + getAreaClass(r.nome);
         const date = new Date(r.data).toLocaleDateString('pt-BR');
 
+        const safe = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         card.innerHTML = `
             <div style="flex: 1;">
-                <strong style="font-size: 1rem; color: #fff;">${r.nome}</strong><br>
+                <strong style="font-size: 1rem; color: #fff;">${safe(r.nome)}</strong>${r.etapa ? ` <small style="color:var(--accent)">· ${safe(r.etapa)}</small>` : ''}<br>
                 <small style="color: var(--text-muted); display: block; margin-top: 4px;">${date}</small>
-                ${r.notas ? `<p style="margin-top: 12px; font-size: 0.85rem; color: #cbd5e1; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; border-left: 3px solid var(--primary);">${r.notas}</p>` : ''}
+                ${r.notas ? `<p style="margin-top: 12px; font-size: 0.85rem; color: #cbd5e1; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; border-left: 3px solid var(--primary);">${safe(r.notas)}</p>` : ''}
             </div>
-            <div class="intervalo">${r.intervalo}</div>
+            <div class="intervalo">${safe(r.intervalo)}</div>
         `;
         listDiv.appendChild(card);
     });
