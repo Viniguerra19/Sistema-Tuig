@@ -162,7 +162,7 @@ O banco de dados é hospedado em uma Planilha Google. A estrutura e nomenclatura
 
 ### Deploy do Backend (Google Apps Script)
 1.  Na sua planilha Google configurada, vá em **Extensões** -> **Apps Script**.
-2.  Substitua todo o código padrão do editor pelo conteúdo do arquivo `Code.gs` contido neste repositório.
+2.  Mantenha `Code.gs`, `WhatsApp.gs` e `Aniversarios.gs` no mesmo projeto do Apps Script, com o conteúdo dos arquivos deste repositório.
 3.  Altere as constantes no início do script:
     *   `SPREADSHEET_ID`: Insira o ID da sua planilha (ex: `1N8gsG2A99KI1...voIu4QWc`).
     *   `TERREIRO_LAT` e `TERREIRO_LON`: Ajuste as coordenadas do ponto central geográfico do Terreiro.
@@ -206,6 +206,68 @@ O sistema possui regras rígidas que limitam o envio de presença apenas nos seg
 
 ---
 
+## Configuração do WhatsApp (W-API)
+
+Em **Configurações do projeto > Propriedades do script** do Apps Script, configure:
+
+| Propriedade | Valor |
+|---|---|
+| `WAPI_INSTANCE_ID` | ID da instância W-API |
+| `WAPI_TOKEN` | Token Bearer da instância |
+| `WAPI_WEBHOOK_SECRET` | Segredo exclusivo com pelo menos 32 caracteres aleatórios |
+| `WAPI_WEBHOOK_URL` | URL pública da implantação terminada em `/exec` (não `/dev`) |
+
+Guarde tokens nas propriedades do Apps Script, fora do código e da planilha.
+Publique uma nova versão na implantação atual, executando como proprietário, com acesso público para receber o webhook. Preserve a URL existente.
+Com o número conectado à W-API, execute `configureWhatsAppReceivedWebhook()` e autorize os acessos solicitados. A função cria as abas `WhatsApp Usuários`, `WhatsApp Sessões` e `WhatsApp Eventos`, além da propriedade automática `WAPI_WEBHOOK_ACTIVATED_AT`.
+
+O bot atende telefones previamente cadastrados na coluna `Telefone` de `WhatsApp Usuários`, com DDI. A pessoa informa um e-mail ativo e confirma o código recebido por e-mail. Para associar números que chegam somente como LID, marque `Ativar bot` na linha da pessoa: ela recebe um convite e responde `ATIVAR CÓDIGO` em até 24 horas, depois conclui a confirmação por e-mail.
+Se o bot não responder, confira a implantação `/exec`, as propriedades e a aba `WhatsApp Eventos`. Após atualizar código do webhook, publique uma nova versão da implantação.
+
+## Aniversários
+
+As datas ficam em `Usuários!J`, no formato dia/mês. No mesmo projeto do Apps Script, execute `configurarGatilhoAniversariosTuig()` uma vez para ativar a rotina diária na faixa das 8h, no fuso da planilha. A função reutiliza o gatilho existente. `pausarAniversariosTuig()` pausa os avisos; `visualizarAniversariosHoje()` apenas consulta, sem enviar.
+
+A rotina usa as credenciais W-API existentes e envia o resumo com os textos de parabéns por e-mail para `viniciusguerra19@icloud.com`. As propriedades opcionais permitem alterar os destinos:
+
+- `ANIVERSARIOS_AVISO_EMAIL`: destinatário do resumo por e-mail.
+- `ANIVERSARIOS_AVISO_TELEFONE`: telefone pessoal com país e DDD.
+- `ANIVERSARIOS_GRUPO_SEXTA`, `ANIVERSARIOS_GRUPO_SABADO`, `ANIVERSARIOS_GRUPO_DOMINGO`: IDs de grupos no formato `...@g.us`.
+- `ANIVERSARIOS_WAPI_INSTANCE_ID` e `ANIVERSARIOS_WAPI_TOKEN`: credenciais alternativas para uma instância dedicada.
+- `ANIVERSARIOS_ATIVO`: `SIM` para permitir os envios.
+
+Para atualizar os aniversários, substitua o conteúdo de `Aniversarios.gs` no Apps Script e salve. O gatilho diário usa o código salvo. Se houver tentativa sem confirmação, confira o relatório da execução e os destinos antes de reenviar.
+
+## Acompanhamento e vínculos
+
+A central **Acompanhamento** mostra mensalidades e presenças para conferir, com nome, turma, telefone e botão para abrir o WhatsApp com uma mensagem pronta. As presenças da mesma pessoa são reunidas em uma única mensagem. O telefone vem da aba `WhatsApp Usuários`, associado pelo e-mail, com país e DDD. Telefones ausentes ou ambíguos precisam ser corrigidos nessa aba. A tela permite buscar e filtrar turma, assunto e período; mensalidades continuam restritas à administração principal. O envio é concluído manualmente no WhatsApp. Os registros antigos de acompanhamento permanecem na planilha.
+
+Em **Vínculos e saídas**, a administração principal pode afastar, reativar ou excluir cadastros. O aluno pode pedir afastamento ou exclusão em **Meu vínculo com o terreiro**. As alterações exigem código enviado ao e-mail de quem executa a ação. Afastamentos preservam o histórico e bloqueiam acesso; a exclusão remove os dados e anexos identificados após conferência e confirmação. Homônimos, empréstimos em aberto e arquivos compartilhados exigem resolução antes da exclusão. Cópias externas e históricos de versões do Google não são removidos por essa rotina.
+
+## Arquivos locais e recuperação
+
+`src/`, `public/`, `index.html` e a configuração do Vite compõem o site. Os três arquivos `.gs` são o código do Google Apps Script. `tests/` contém verificações de comportamento e testes de navegador. Execute `npm test` para os testes automatizados; os arquivos `*.browser.cjs` precisam de Playwright e do servidor local.
+
+`node_modules/` contém as dependências instaladas e pode ser reconstruída com `npm ci`. `dist/` é gerada por `npm run build`; publique seu conteúdo no caminho `/sistema/` configurado no Vite. Ambas as pastas ficam fora do Git.
+
+O GitHub guarda o código. Os dados da planilha, propriedades secretas, gatilhos e implantações permanecem na conta Google. Atualizar a pasta ou o GitHub não atualiza automaticamente o projeto do Apps Script nem o site publicado.
+
+---
+
 ## 📄 Licença
 
 Este projeto é de código aberto e está licenciado sob a licença **[MIT](LICENSE)**. Você está livre para copiar, modificar e utilizar o sistema para fins de gerenciamento e organização comunitária.
+
+### Busca de capas e sinopses da biblioteca
+
+No administrador, abra **Biblioteca → Livros → Cadastrar/Editar**. Preencha título e autor, ou informe o ISBN da edição, e escolha **Buscar capa e sinopse**. Os resultados mostram a fonte, idioma e dados da edição. **Usar capa** e **Usar sinopse** preenchem apenas o campo escolhido; confira a prévia e salve o livro.
+
+A busca consulta Google Books e Open Library pelo navegador, sem chave configurada no cliente. Se um catálogo falhar ou exceder sua cota, o outro continua disponível. Há validação de ISBN, cancelamento ao mudar a pesquisa e limite de tempo das consultas. Descrições estrangeiras de edições do Open Library não são aplicadas como sinopses em português. Imagens indisponíveis usam a capa de identificação com título e autor.
+
+Verificação: `npm test`, `npm run build` e `tests/library.browser.cjs` (Playwright; variável `PLAYWRIGHT_MODULE` quando necessário). O teste de navegador intercepta os serviços externos e usa dados fictícios, sem gravar na planilha. As alterações da interface precisam ser publicadas pelo fluxo de implantação acima para aparecerem no site.
+
+### WhatsApp no acompanhamento
+
+A central Acompanhamento usa o número da coluna O (`WhatsApp`) da aba `Usuários`. Cadastre com país e DDD (ex.: `+55 11 99999-9999`); números brasileiros de 10 ou 11 dígitos sem prefixo recebem o código 55. Para números internacionais, use `+` ou `00` antes do código do país.
+
+As mensalidades são consultadas por intervalo, inicialmente de janeiro ao último mês encerrado. Cada pessoa tem um botão por assunto, reunindo os meses em aberto em uma mensagem e as datas sem presença em outra. O botão abre o WhatsApp com o texto pronto; o administrador revisa e envia. Pagamentos confirmados, isenções, comprovantes pendentes e períodos anteriores ao ingresso conhecido não entram na cobrança.

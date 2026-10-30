@@ -23,6 +23,9 @@ function setup() {
       ['ana@example.com', 'Ana', '+55 (67) 98473-2686', '', 'Sim', 'Ativo'],
       ['bia@example.com', 'Bia', '+34 612 345 678', '', 'Sim', 'Ativo']]
   };
+  tables['Usuários'][0][14] = 'WhatsApp';
+  tables['Usuários'][2][14] = '+55 (67) 98473-2686';
+  tables['Usuários'][3][14] = '+34 612 345 678';
   const ss = {
     getSpreadsheetTimeZone: () => 'America/Sao_Paulo',
     getSheetByName(name) {
@@ -75,15 +78,24 @@ test('data de ingresso protege períodos anteriores; datas inválidas e mês abe
   assert.equal(s.ctx.fuDay('2026-02-31', 'UTC'), '');
   s.params.month = '2026-09'; assert.throws(s.read, /encerrado/);
 });
-test('números ambíguos, compartilhados ou bloqueados não abrem conversa', () => {
+test('coluna O é a origem; aceita DDD brasileiro e bloqueia números compartilhados', () => {
   const s = setup();
-  s.tables['WhatsApp Usuários'].push(['ana@example.com', '', '5511999990000', '', '', 'Ativo']);
+  s.tables['Usuários'][2][14] = '(67) 98473-2686';
+  assert.equal(s.read().cases.find(c => c.email === 'ana@example.com').phone, '5567984732686');
+  s.tables['Usuários'][3][14] = '5567984732686';
   assert.equal(s.read().cases.find(c => c.email === 'ana@example.com').phone, '');
-  s.tables['WhatsApp Usuários'][2][5] = 'Bloqueado';
-  assert.equal(s.read().cases.find(c => c.email === 'bia@example.com').phone, '');
-  s.tables['WhatsApp Usuários'].pop();
-  s.tables['WhatsApp Usuários'].push(['externo@example.com', '', '5567984732686', '', '', 'Ativo']);
+  s.tables['Usuários'][2][14] = '';
   assert.equal(s.read().cases.find(c => c.email === 'ana@example.com').phone, '');
+});
+test('intervalo reúne meses em aberto e respeita pagamento, análise e ingresso', () => {
+  const s = setup();
+  s.params.monthFrom = '2026-06';
+  s.tables['Usuários'][2][9] = '2026-06-01';
+  s.tables['Mensalidades'].push(['', 'ana@example.com', '', 7, 2026, '', '', 'Pago']);
+  assert.deepEqual(Array.from(s.read().cases.filter(c => c.email === 'ana@example.com' && c.topic === 'mensalidade'), c => c.reference), ['2026-06', '2026-08']);
+  s.tables['Mensalidades'].push(['', 'ana@example.com', '', 6, 2026, '', '', 'Pendente']);
+  assert.deepEqual(Array.from(s.read().cases.filter(c => c.email === 'ana@example.com' && c.topic === 'mensalidade'), c => c.reference), ['2026-08']);
+  s.params.monthFrom = '2026-09'; assert.throws(s.read, /intervalo/);
 });
 test('falta de planilha não gera lista falsa de inadimplentes', () => {
   const s = setup(); delete s.tables['Mensalidades']; assert.throws(s.read, /Não é seguro/);

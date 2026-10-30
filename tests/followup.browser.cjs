@@ -13,6 +13,8 @@ async function main() {
       { email: 'ana@example.com', name: 'Ana Exemplo', turma: 'Sexta', topic: 'mensalidade', reference: '2026-08', phone: '5511999990000', reason: 'Sem pagamento registrado', status: 'Pendente', joinedKnown: true },
       { email: 'bia@example.com', name: 'Bia <Exemplo>', turma: 'Sábado', topic: 'presenca', reference: '2026-08-29', phone: '', phoneIssue: 'Telefone não vinculado.', reason: 'Sem presença registrada', status: 'Pendente', joinedKnown: false }
     ].map(c => ({ ...c, key: JSON.stringify([c.email, c.topic, c.reference]) }));
+    cases.push({ ...cases[0], reference: '2026-07', key: 'second-payment' });
+    cases.push({ ...cases[1], reference: '2026-08-22', key: 'second-presence' });
     const history = [];
     await context.route('**/*', async route => {
       const url = new URL(route.request().url());
@@ -40,34 +42,45 @@ async function main() {
       await renderAdminDashboard('admin@example.com');
     });
     await page.getByRole('button', { name: 'Acompanhamento', exact: true }).click();
-    await page.getByText('Dados atualizados. Nenhuma mensagem foi enviada.').waitFor();
-    await page.locator('[data-select]').first().click();
-    assert.equal(await page.locator('[data-save-contact]').isDisabled(), true);
-    assert.equal(writes.length, 0);
-    await page.locator('[data-message]').fill('Oi, Ana! Você pode conferir a mensalidade de agosto?');
-    assert.match(await page.locator('[data-whatsapp]').getAttribute('href'), /^https:\/\/wa.me\/5511999990000\?text=Oi/);
+    await page.locator('.fu-case').first().waitFor();
+    assert.equal(await page.locator('.fu-case').count(), 2, 'presenças da mesma pessoa devem ser agrupadas');
+    assert.equal(await page.locator('[data-detail], [data-confirm], [data-save-contact], [data-history]').count(), 0);
+    assert.ok((await page.locator('.fu-case').first().textContent()).includes('+5511999990000'));
+    assert.match(await page.locator('.fu-case').first().textContent(), /agosto\/2026, julho\/2026/);
+    assert.equal(await page.locator('[data-feedback]').textContent(), '');
+    const link = page.locator('[data-whatsapp]').first();
+    const url = new URL(await link.getAttribute('href'));
+    assert.equal(url.pathname, '/5511999990000');
+    assert.match(url.searchParams.get('text'), /Oi, Ana!/);
+    assert.match(url.searchParams.get('text'), /agosto\/2026/);
+    assert.match(url.searchParams.get('text'), /julho\/2026/);
     const popupPromise = page.waitForEvent('popup');
-    await page.locator('[data-whatsapp]').click();
+    await link.click();
     const popup = await popupPromise; await popup.close();
-    assert.equal(writes.length, 0, 'abrir WhatsApp não deve gravar envio');
-    await page.locator('[data-confirm]').check();
-    await page.locator('[data-save-contact]').click();
-    await page.getByText('Contato registrado por sua confirmação. Nenhum envio automático.').waitFor();
-    assert.equal(writes.length, 1); assert.equal(writes[0].type, 'contato');
-    await page.locator('[data-status]').selectOption('Resolvido');
-    await page.locator('[data-save-status]').click();
-    await page.getByText('Situação salva. Nenhum contato foi marcado como realizado.').waitFor();
-    assert.equal(writes.length, 2); assert.equal(writes[1].type, 'atualizacao');
-    await page.locator('[data-select]').first().click();
-    assert.equal(await page.locator('[data-whatsapp]').getAttribute('href'), null);
-    assert.ok((await page.locator('[data-detail]').textContent()).includes('Bia <Exemplo>'));
+    assert.equal(writes.length, 0, 'abrir WhatsApp não deve gravar nem enviar mensagens');
+    const missingPhone = page.locator('.fu-case').nth(1);
+    assert.equal(await missingPhone.locator('button').isDisabled(), true);
+    assert.ok((await missingPhone.textContent()).includes('Bia <Exemplo>'));
+    assert.ok((await missingPhone.textContent()).includes('22/08/2026'));
+    assert.ok((await missingPhone.textContent()).includes('29/08/2026'));
+    await page.locator('[name=search]').fill('5511999990000');
+    assert.equal(await page.locator('.fu-case').count(), 1);
+    await page.locator('[name=search]').fill('');
+    await page.locator('[name=topic]').selectOption('presenca');
+    assert.equal(await page.locator('.fu-case').count(), 1);
+    const message = await page.evaluate(async () => {
+      const { messageFor } = await import('/sistema/src/followup.js');
+      return messageFor({ name: 'Bia Exemplo', topic: 'presenca', references: ['2026-08-22', '2026-08-29'] });
+    });
+    assert.match(message, /22\/08\/2026, 29\/08\/2026/);
+    await page.locator('[name=topic]').selectOption('');
     await page.screenshot({ path: path.join(__dirname, '../artifacts/followup-desktop.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(__dirname, '../artifacts/followup-mobile.png'), fullPage: true });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     assert.equal(overflow, false, 'tela não pode ter rolagem horizontal no celular');
     assert.deepEqual(errors, []);
-    console.log('OK: acesso direto do administrador, navegação, link manual, nenhum envio automático, registro separado, resolução, telefone ausente, escape HTML e layout desktop/celular.');
+    console.log('OK: lista simplificada, telefone, mensagem pronta, agrupamento de presenças, filtros, telefone ausente, escape HTML e layout desktop/celular.');
   } finally { await browser.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

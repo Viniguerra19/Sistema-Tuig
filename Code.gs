@@ -408,27 +408,35 @@ function fuBuildData(ss, users, params, isMaster) {
   const month = fuText(params.month);
   if (!from || !to || from > to || (new Date(to) - new Date(from)) / 86400000 > 366) throw new Error('Escolha um período válido de até um ano.');
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month >= today.slice(0, 7)) throw new Error('Selecione uma mensalidade de mês já encerrado.');
+  const monthFrom = fuText(params.monthFrom) || month;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthFrom) || monthFrom > month ||
+      (Number(month.slice(0, 4)) - Number(monthFrom.slice(0, 4))) * 12 + Number(month.slice(5)) - Number(monthFrom.slice(5)) > 120) throw new Error('Escolha um intervalo de mensalidades válido de até dez anos.');
+  const months = [];
+  for (let ref = monthFrom; ref <= month;) {
+    months.push(ref);
+    const year = Number(ref.slice(0, 4)), number = Number(ref.slice(5));
+    ref = number === 12 ? (year + 1) + '-01' : year + '-' + String(number + 1).padStart(2, '0');
+  }
   const allowed = new Set(users.map(u => fuEmail(u.email)));
   const history = fuHistory(fuRows(ss, FU_SHEET), allowed, tz).filter(h => isMaster || h.topic !== 'mensalidade');
   const latest = new Map();
   history.forEach(h => latest.set(fuKey(h.email, h.topic, h.reference), h));
-  const waRows = fuRows(ss, 'WhatsApp Usuários');
-  const waHeader = (waRows[0] || []).map(fuNorm);
+  const members = fuRows(ss, NOME_ABA_USUARIOS);
   const phones = new Map();
   const phoneOwners = new Map();
-  waRows.slice(1).forEach(r => {
-    const email = fuEmail(r[waHeader.findIndex(h => h === 'email' || h === 'e-mail')]);
-    const phone = fuText(r[waHeader.indexOf('telefone')]).replace(/[^\d]/g, '');
-    const status = fuNorm(r[waHeader.indexOf('status')]);
-    if (email && phone) {
-      if (!phoneOwners.has(phone)) phoneOwners.set(phone, new Set());
-      phoneOwners.get(phone).add(email);
-    }
-    if (!allowed.has(email) || !/^[1-9]\d{6,14}$/.test(phone) || ['bloqueado', 'inativo', 'revogado'].includes(status)) return;
+  members.slice(1).forEach(r => {
+    const email = fuEmail(r[0]);
+    const rawPhone = fuText(r[14]);
+    let phone = rawPhone.replace(/[^\d]/g, '');
+    if (phone.startsWith('00')) phone = phone.slice(2);
+    // Números brasileiros com DDD podem ser cadastrados sem o código do país.
+    if (!rawPhone.startsWith('+') && !rawPhone.startsWith('00') && (phone.length === 10 || phone.length === 11)) phone = '55' + phone;
+    if (!email || !/^[1-9]\d{6,14}$/.test(phone)) return;
+    if (!phoneOwners.has(phone)) phoneOwners.set(phone, new Set());
+    phoneOwners.get(phone).add(email);
     if (!phones.has(email)) phones.set(email, new Set());
     phones.get(email).add(phone);
   });
-  const members = fuRows(ss, NOME_ABA_USUARIOS);
   const joinedColumn = (members[0] || []).findIndex(h => ['data de ingresso', 'ingresso em'].includes(fuNorm(h)));
   const joined = new Map(members.slice(1).map(r => [fuEmail(r[0]), joinedColumn >= 0 ? fuDay(r[joinedColumn], tz) : '']));
   const presence = new Set();
@@ -451,10 +459,11 @@ function fuBuildData(ss, users, params, isMaster) {
   fuRows(ss, NOME_ABA_MENSALIDADES).slice(1).forEach(r => {
     const monthNumber = Number(r[3]) || monthNames.indexOf(fuNorm(r[3])) + 1;
     const ref = String(r[4]) + '-' + String(monthNumber).padStart(2, '0');
-    if (ref !== month) return;
+    if (ref < monthFrom || ref > month) return;
     const email = fuEmail(r[1]), status = fuNorm(r[7]);
-    if (!payments.has(email)) payments.set(email, new Set());
-    payments.get(email).add(status);
+    const key = email + ':' + ref;
+    if (!payments.has(key)) payments.set(key, new Set());
+    payments.get(key).add(status);
   });
   const cases = [];
   users.forEach(u => {
@@ -462,18 +471,20 @@ function fuBuildData(ss, users, params, isMaster) {
     const phoneSet = phones.get(email);
     const candidate = phoneSet && phoneSet.size === 1 ? [...phoneSet][0] : '';
     const base = { email: email, name: fuText(u.nome), turma: fuText(u.turma), phone: candidate && phoneOwners.get(candidate).size === 1 ? candidate : '',
-      phoneIssue: (phoneSet && phoneSet.size > 1) || (candidate && phoneOwners.get(candidate).size > 1) ? 'Telefone ambíguo: há múltiplos números ou pessoas no vínculo. Confira o cadastro.' : 'Telefone internacional não vinculado a este e-mail na aba WhatsApp Usuários.', joinedKnown: !!start };
+      phoneIssue: (phoneSet && phoneSet.size > 1) || (candidate && phoneOwners.get(candidate).size > 1) ? 'Telefone ambíguo: há múltiplos números ou pessoas no vínculo. Confira o cadastro.' : 'Preencha um número válido na coluna O (WhatsApp) da aba Usuários, com DDD e código do país.', joinedKnown: !!start };
     const missing = [...new Set(events.filter(e => {
       const expected = tuigEventApplies(e.turma, turma);
       return expected && !memberExcluded(periods, email, e.day, false) && (!start || e.day >= start) && !presence.has(email + ':' + e.day) && !excused.has(email + ':' + e.day) && !reviewing.has(email + ':' + e.day);
     }).map(e => e.day))];
     missing.forEach(day => cases.push({ ...base, topic: 'presenca', reference: day, reason: 'Sem presença registrada' }));
+    months.forEach(month => {
     if (isMaster && !memberExcluded(periods, email, month, true) && (!start || start.slice(0, 7) <= month)) {
-      const paid = payments.get(email) || new Set();
+      const paid = payments.get(email + ':' + month) || new Set();
       if (!['pago', 'aprovado', 'aprovada', 'isento'].some(s => paid.has(s)) && !paid.has('pendente')) {
         cases.push({ ...base, topic: 'mensalidade', reference: month, reason: 'Sem pagamento registrado' });
       }
     }
+    });
   });
   const lastContacts = new Map();
   history.forEach(h => { if (h.type === 'contato') lastContacts.set(h.email, h); });
@@ -2799,108 +2810,99 @@ function consolidateBooks() {
   }
 }
 
+// Um resultado de busca só é utilizado quando título e autor conferem.
+function normalizeLibraryLookup(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function selectLibraryEdition(docs, title, author) {
+  const target = normalizeLibraryLookup(title);
+  const authorTokens = normalizeLibraryLookup(author).split(' ').filter(t => t.length > 2 && !['dos', 'das', 'nao', 'informado', 'outros'].includes(t));
+  if (!target || !authorTokens.length) return null;
+  const matches = [];
+  (docs || []).forEach(doc => {
+    const authorMatches = (doc.author_name || []).some(name => {
+      const tokens = normalizeLibraryLookup(name).split(' ');
+      return authorTokens.filter(t => tokens.includes(t)).length >= Math.min(2, authorTokens.length);
+    });
+    if (!authorMatches) return;
+    const editions = (doc.editions && doc.editions.docs) || [];
+    editions.forEach(edition => {
+      if (normalizeLibraryLookup(edition.title) === target && (edition.language || []).includes('por') && /^\/books\/OL\d+M$/.test(edition.key || '')) {
+        matches.push({ work: doc, edition: edition });
+      }
+    });
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function libraryPortugueseDescription(value) {
+  const text = typeof value === 'string' ? value : value && typeof value.value === 'string' ? value.value : '';
+  if (text.length < 80) return '';
+  const words = normalizeLibraryLookup(text).split(' ');
+  const portuguese = words.filter(w => ['uma', 'para', 'que', 'com', 'sua', 'seu', 'dos', 'das', 'nao', 'pela', 'pelo', 'como', 'livro', 'historia'].includes(w)).length;
+  const english = words.filter(w => ['the', 'and', 'with', 'this', 'that', 'from', 'his', 'her', 'their'].includes(w)).length;
+  return portuguese >= 4 && portuguese > english * 2 ? text.trim() : '';
+}
+
 function enrichBookDetails() {
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_BIBLIOTECA_ID);
     const { livrosSheet } = checkAndInitLibrarySheets(ss);
-    
     const data = livrosSheet.getDataRange().getValues();
-    if (data.length <= 1) {
-      showAlert("Nenhum livro encontrado para enriquecer.");
-      return;
-    }
-    
-    let enrichedCount = 0;
-    let checkedCount = 0;
-    
-    // Processamos no máximo 50 livros por rodada para evitar timeouts do Google Apps Script
-    const maxBatch = 50;
-    
-    for (let i = 1; i < data.length; i++) {
-      if (enrichedCount >= maxBatch) break;
-      
-      const title = data[i][1] ? data[i][1].toString().trim() : "";
-      const author = data[i][2] ? data[i][2].toString().trim() : "";
-      const currentSynopsis = data[i][3] ? data[i][3].toString().trim() : "";
-      const currentCover = data[i][4] ? data[i][4].toString().trim() : "";
-      const activeVal = data[i][8];
-      const isAtivo = activeVal === true || activeVal === "TRUE" || activeVal === "true" || activeVal === "";
-      
-      // Só busca se o livro estiver ativo e não tiver sinopse OU não tiver capa
-      if (isAtivo && (!currentSynopsis || !currentCover)) {
-        checkedCount++;
-        
-        let queryStr = title;
-        if (author && author.toLowerCase() !== "não informado" && author.toLowerCase() !== "não cadastrada") {
-          queryStr += " " + author;
-        }
-        
-        const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(queryStr)}&limit=1`;
-        
-        try {
-          const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-          if (response.getResponseCode() === 200) {
-            const json = JSON.parse(response.getContentText());
-            if (json.docs && json.docs.length > 0) {
-              const doc = json.docs[0];
-              
-              let newSynopsis = currentSynopsis;
-              let newCover = currentCover;
-              
-              // 1. Busca Capa
-              if (!currentCover) {
-                if (doc.cover_i) {
-                  newCover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
-                } else if (doc.cover_edition_key) {
-                  newCover = `https://covers.openlibrary.org/b/olid/${doc.cover_edition_key}-L.jpg`;
-                }
-              }
-              
-              // 2. Busca Sinopse (Faz uma segunda requisição detalhada do Work se necessário)
-              if (!currentSynopsis && doc.key) {
-                const workUrl = `https://openlibrary.org${doc.key}.json`;
-                const workRes = UrlFetchApp.fetch(workUrl, { muteHttpExceptions: true });
-                if (workRes.getResponseCode() === 200) {
-                  const workJson = JSON.parse(workRes.getContentText());
-                  if (workJson.description) {
-                    if (typeof workJson.description === 'object' && workJson.description.value) {
-                      newSynopsis = workJson.description.value;
-                    } else if (typeof workJson.description === 'string') {
-                      newSynopsis = workJson.description;
-                    }
-                  }
-                }
-              }
-              
-              // Grava na planilha se mudou alguma coisa
-              if (newSynopsis !== currentSynopsis || newCover !== currentCover) {
-                const rowIndex = i + 1;
-                if (newSynopsis !== currentSynopsis) {
-                  livrosSheet.getRange(rowIndex, 4).setValue(newSynopsis);
-                }
-                if (newCover !== currentCover) {
-                  livrosSheet.getRange(rowIndex, 5).setValue(newCover);
-                }
-                enrichedCount++;
-              }
-            }
+    if (data.length <= 1) { showAlert('Nenhum livro encontrado para enriquecer.'); return; }
+    const properties = PropertiesService.getScriptProperties();
+    const total = data.length - 1;
+    let cursor = Number(properties.getProperty('LIBRARY_ENRICH_CURSOR')) || 0;
+    cursor = ((cursor % total) + total) % total;
+    let checked = 0, enriched = 0, visited = 0;
+    // Limita tentativas, inclusive quando nenhuma correspondência é encontrada.
+    while (visited < total && checked < 25) {
+      const index = 1 + cursor;
+      cursor = (cursor + 1) % total;
+      visited++;
+      const row = data[index];
+      const active = row[8] === true || row[8] === 'TRUE' || row[8] === 'true' || row[8] === '';
+      if (!active || (row[3] && row[4]) || !row[1] || !row[2]) continue;
+      checked++;
+      try {
+        const url = 'https://openlibrary.org/search.json?title=' + encodeURIComponent(row[1]) +
+          '&author=' + encodeURIComponent(row[2]) + '&lang=pt&limit=5&fields=key,title,author_name,editions,editions.key,editions.title,editions.language';
+        const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        if (response.getResponseCode() !== 200) continue;
+        const match = selectLibraryEdition(JSON.parse(response.getContentText()).docs, row[1], row[2]);
+        if (!match) continue;
+        Utilities.sleep(1100);
+        const editionResponse = UrlFetchApp.fetch('https://openlibrary.org' + match.edition.key + '.json', { muteHttpExceptions: true });
+        if (editionResponse.getResponseCode() !== 200) continue;
+        const edition = JSON.parse(editionResponse.getContentText());
+        let changed = false;
+        const coverId = (edition.covers || []).find(id => Number.isInteger(id) && id > 0);
+        if (!row[4] && coverId) {
+          const coverUrl = 'https://covers.openlibrary.org/b/id/' + coverId + '-L.jpg?default=false';
+          Utilities.sleep(1100);
+          const coverResponse = UrlFetchApp.fetch(coverUrl, { muteHttpExceptions: true });
+          const headers = coverResponse.getHeaders();
+          const type = String(headers['Content-Type'] || headers['content-type'] || '');
+          if (coverResponse.getResponseCode() === 200 && /^image\//i.test(type) && coverResponse.getContent().length > 1000) {
+            livrosSheet.getRange(index + 1, 5).setValue(coverUrl);
+            changed = true;
           }
-          Utilities.sleep(500); // Respeitar limites do Open Library
-        } catch (e) {
-          Logger.log(`Erro ao buscar detalhes no Open Library para "${title}": ` + e.toString());
         }
-      }
+        const synopsis = libraryPortugueseDescription(edition.description);
+        if (!row[3] && synopsis) {
+          // Texto externo permanece literal, inclusive se começar por =.
+          livrosSheet.getRange(index + 1, 4).setValue(/^[=+@-]/.test(synopsis) ? "'" + synopsis : synopsis);
+          changed = true;
+        }
+        if (changed) enriched++;
+      } catch (error) { Logger.log('Erro ao conferir livro ' + row[1] + ': ' + error); }
+      finally { Utilities.sleep(1100); }
     }
-    
-    showAlert(
-      `Varredura Concluída!\n\n` +
-      `- Livros analisados nesta rodada: ${checkedCount}\n` +
-      `- Livros enriquecidos com sucesso (capa/sinopse adicionados): ${enrichedCount}\n\n` +
-      `Se ainda houver livros sem dados, basta rodar o menu novamente.`
-    );
-  } catch (err) {
-    showAlert("Erro ao enriquecer acervo: " + err.toString());
-  }
+    properties.setProperty('LIBRARY_ENRICH_CURSOR', String(cursor));
+    showAlert('Revisão concluída: ' + checked + ' livros consultados e ' + enriched + ' atualizados. Apenas correspondências únicas de título e autor, em edições em português, foram utilizadas. Execute novamente para continuar a partir do próximo livro.');
+  } catch (error) { showAlert('Erro ao enriquecer acervo: ' + error); }
 }
 
 /**
